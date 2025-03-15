@@ -1,0 +1,92 @@
+# Entornos virtuales
+botia/
+env/
+venv/
+ENV/
+.env
+.venv
+env.bak/
+venv.bak/
+
+# Archivos de Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Credenciales y tokens de Google
+credentials.json
+token.pickle
+*.pickle
+client_secret*.json
+
+# Archivos de log
+*.log
+logs/
+
+# Archivos locales de configuración
+.env
+.local_settings
+
+# Bases de datos
+*.db
+*.sqlite3
+*.sqlite
+
+# Archivos de sistema
+.DS_Store
+Thumbs.db
+.directory
+Desktop.ini
+
+# Editores y IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.vs/
+.spyderproject
+.spyproject
+.ropeproject
+
+# Carpetas de test y cobertura
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Documentación generada
+docs/_build/
+doc/_build/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Archivos temporales
+tmp/
+temp/
