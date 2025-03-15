@@ -142,14 +142,40 @@
     
     // Generar ID único para el usuario
     var userId = 'user_' + Math.random().toString(36).substr(2, 9);
+    var chatActive = false; // Para rastrear si el chat está activo o no
     
     // Evento para mostrar/ocultar el chat
     chatButton.addEventListener('click', function() {
         chatDiv.style.display = 'flex';
         chatButton.style.display = 'none';
-        if (messagesArea.children.length === 0) {
-            // Mostrar mensaje de bienvenida solo la primera vez
-            addBotMessage('¡Hola! Soy el asistente de citas legales. ¿En qué puedo ayudarte hoy?');
+        
+        // Si es la primera vez que se abre o se había cerrado anteriormente
+        if (!chatActive) {
+            // Limpiar mensajes anteriores
+            messagesArea.innerHTML = '';
+            
+            // Reiniciar la conversación con el backend
+            fetch('/api/bot', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    mensaje: "reset_conversation",
+                    user_id: userId
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Mostrar mensaje de bienvenida
+                addBotMessage('¡Hola! Soy el asistente de citas legales. ¿En qué puedo ayudarte hoy?');
+                chatActive = true;
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                addBotMessage('Lo siento, ha ocurrido un error al iniciar la conversación.');
+                chatActive = true;
+            });
         }
     });
     
@@ -157,6 +183,8 @@
     minimizeButton.addEventListener('click', function() {
         chatDiv.style.display = 'none';
         chatButton.style.display = 'flex';
+        // Marcar el chat como cerrado
+        chatActive = false;
     });
     
     // Evento de envío de mensaje

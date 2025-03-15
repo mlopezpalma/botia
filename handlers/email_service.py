@@ -4,7 +4,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from config import EMAIL_CONFIG, TIPOS_REUNION
 
-def enviar_correo_confirmacion(datos_cliente, fecha, hora, tipo_reunion):
+def enviar_correo_confirmacion(datos_cliente, fecha, hora, tipo_reunion, tema_reunion=None):
     """
     Simula el envío de correos de confirmación.
     En un entorno real, esta función enviaría correos a través de SMTP.
@@ -14,6 +14,7 @@ def enviar_correo_confirmacion(datos_cliente, fecha, hora, tipo_reunion):
         fecha: Fecha en formato "YYYY-MM-DD"
         hora: Hora en formato "HH:MM"
         tipo_reunion: Tipo de reunión
+        tema_reunion: Tema o motivo de la reunión (opcional)
     
     Returns:
         True si se envió correctamente (simulado)
@@ -40,7 +41,12 @@ Detalles de la cita:
 - Duración: {duracion} minutos
 - Fecha: {fecha_formateada}
 - Hora: {hora}
+"""
 
+    if tema_reunion:
+        mensaje_cliente += f"- Tema de la consulta: {tema_reunion}\n"
+
+    mensaje_cliente += """
 Le recordamos que para citas presenciales debe presentarse 5 minutos antes en nuestra oficina.
 Para videoconferencias, recibirá un enlace 10 minutos antes de la cita.
 Para citas telefónicas, recibirá una llamada al número proporcionado.
@@ -67,7 +73,12 @@ Se ha registrado una nueva cita con los siguientes detalles:
 - Fecha: {fecha_formateada}
 - Hora: {hora}
 - Duración: {duracion} minutos
+"""
 
+    if tema_reunion:
+        mensaje_empresa += f"- Tema de la consulta: {tema_reunion}\n"
+
+    mensaje_empresa += """
 Por favor, asegúrese de preparar todo lo necesario para esta cita.
 """
     print(f"DEBUG - Cuerpo del mensaje para la empresa:\n{mensaje_empresa}")

@@ -206,6 +206,8 @@ def identificar_tipo_reunion(texto):
     print("DEBUG - No se detectó ningún patrón, retornando None")
     return None
 
+# Modificaciones para mejorar la extracción de datos personales en models/data_extraction.py
+
 def identificar_datos_personales(texto):
     """
     Identifica datos personales en el texto proporcionado.
@@ -217,6 +219,7 @@ def identificar_datos_personales(texto):
         Diccionario con los datos personales identificados
     """
     datos = {"nombre": None, "email": None, "telefono": None}
+    texto_lower = texto.lower()
     
     # Buscar email
     email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
@@ -237,17 +240,44 @@ def identificar_datos_personales(texto):
                 num_telefono = "+34 " + num_telefono
         datos["telefono"] = num_telefono
     
-    # Buscar nombre (patrones comunes)
-    nombre_patterns = [
-        r'me llamo\s+([A-Za-záéíóúüñÁÉÍÓÚÜÑ]+(?:\s+[A-Za-záéíóúüñÁÉÍÓÚÜÑ]+){0,2})',
-        r'mi nombre es\s+([A-Za-záéíóúüñÁÉÍÓÚÜÑ]+(?:\s+[A-Za-záéíóúüñÁÉÍÓÚÜÑ]+){0,2})',
-        r'soy\s+([A-Za-záéíóúüñÁÉÍÓÚÜÑ]+(?:\s+[A-Za-záéíóúüñÁÉÍÓÚÜÑ]+){0,2})'
+    # Palabras que no deben considerarse nombres
+    palabras_a_ignorar = [
+        "no", "si", "sí", "hola", "buenas", "buenos", "quiero", "quisiera", 
+        "necesito", "confirmar", "cancelar", "el", "la", "los", "las",
+        "presencial", "videoconferencia", "telefonica", "telefónica", 
+        "consulta", "cita", "reunion", "reunión", "agendar", "legal"
     ]
     
+    # Buscar nombre (patrones mejorados con más casos)
+    nombre_patterns = [
+        # Patrones explícitos
+        r'me llamo\s+([A-Za-záéíóúüñÁÉÍÓÚÜÑ]+(?:\s+[A-Za-záéíóúüñÁÉÍÓÚÜÑ]+){0,2})',
+        r'mi nombre es\s+([A-Za-záéíóúüñÁÉÍÓÚÜÑ]+(?:\s+[A-Za-záéíóúüñÁÉÍÓÚÜÑ]+){0,2})',
+        r'soy\s+([A-Za-záéíóúüñÁÉÍÓÚÜÑ]+(?:\s+[A-Za-záéíóúüñÁÉÍÓÚÜÑ]+){0,2})',
+        r'nombre[:\s]+([A-Za-záéíóúüñÁÉÍÓÚÜÑ]+(?:\s+[A-Za-záéíóúüñÁÉÍÓÚÜÑ]+){0,2})'
+    ]
+    
+    # Buscar primero patrones explícitos
     for pattern in nombre_patterns:
         nombre_match = re.search(pattern, texto, re.IGNORECASE)
         if nombre_match:
-            datos["nombre"] = nombre_match.group(1)
-            break
+            nombre_candidato = nombre_match.group(1)
+            # Verificar que no sea una palabra a ignorar
+            if nombre_candidato.lower() not in palabras_a_ignorar:
+                datos["nombre"] = nombre_candidato
+                break
+    
+    # Si no se encontró nombre con los patrones explícitos, buscar nombres propios
+    if datos["nombre"] is None:
+        # Buscar segmentos que parezcan nombres propios (primera letra mayúscula)
+        posibles_nombres = re.findall(r'(?:^|\s)([A-Z][a-záéíóúüñ]+(?:\s+[A-Z][a-záéíóúüñ]+){0,2})(?:\s|$)', texto)
+        for posible_nombre in posibles_nombres:
+            # Verificar que no sea una palabra común o a ignorar
+            palabras = posible_nombre.lower().split()
+            if not any(palabra in palabras_a_ignorar for palabra in palabras):
+                # Verificar que tiene al menos 3 caracteres para evitar siglas o iniciales sueltas
+                if len(posible_nombre) >= 3:
+                    datos["nombre"] = posible_nombre
+                    break
     
     return datos

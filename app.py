@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify, send_from_directory
 import os
-from handlers.conversation import generar_respuesta
+from handlers.conversation import generar_respuesta, reset_conversacion
 
 app = Flask(__name__)
 
@@ -9,7 +9,7 @@ app.user_states = {}
 
 @app.route('/')
 def home():
-    # Retornar directamente el HTML
+    # Código HTML existente sin cambios...
     return """
     <!DOCTYPE html>
     <html>
@@ -149,6 +149,11 @@ def chat():
     user_id = data.get('user_id', 'default_user')
     
     try:
+        # Verificar si es un mensaje de reseteo
+        if mensaje == "reset_conversation":
+            reset_conversacion(user_id, app.user_states)
+            return jsonify({'respuesta': 'Conversación reiniciada.'})
+        
         respuesta = generar_respuesta(mensaje, user_id, app.user_states)
         return jsonify({'respuesta': respuesta})
     except Exception as e:
@@ -162,3 +167,4 @@ def widget_js():
 
 if __name__ == '__main__':
     app.run(debug=True)
+

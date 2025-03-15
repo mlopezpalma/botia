@@ -24,6 +24,10 @@ class TestConversation(unittest.TestCase):
         
         # Seleccionar tipo de reunión
         respuesta = generar_respuesta("presencial", user_id, self.user_states)
+        self.assertIn("tema de la consulta legal", respuesta)
+        
+        # Proporcionar tema de la reunión
+        respuesta = generar_respuesta("Consulta sobre contrato de arrendamiento", user_id, self.user_states)
         self.assertIn("¿Cómo te gustaría agendar tu cita?", respuesta)
         
         # Seleccionar día específico
@@ -37,7 +41,6 @@ class TestConversation(unittest.TestCase):
         
         # Si hay horarios disponibles, continuar con el flujo
         if "horarios disponibles" in respuesta:
-            # Seleccionar primera hora disponible (suponemos que hay al menos una disponible)
             # Extraer la primera hora del menú
             menu_start = respuesta.find("[MENU:")
             if menu_start != -1:
@@ -79,10 +82,15 @@ class TestConversation(unittest.TestCase):
         generar_respuesta("hola", user_id, self.user_states)
         
         respuesta = generar_respuesta("videoconferencia", user_id, self.user_states)
+        self.assertIn("tema de la consulta legal", respuesta)
+        
+        # Proporcionar tema de la reunión
+        respuesta = generar_respuesta("Consulta laboral", user_id, self.user_states)
         self.assertIn("¿Cómo te gustaría agendar tu cita?", respuesta)
         
         # Verificar que se ha guardado el tipo
         self.assertEqual(self.user_states[user_id]["tipo_reunion"], "videoconferencia")
+        self.assertEqual(self.user_states[user_id]["tema_reunion"], "Consulta laboral")
     
     def test_extraccion_datos_personales(self):
         """Prueba la extracción de datos personales durante la conversación."""
@@ -94,6 +102,7 @@ class TestConversation(unittest.TestCase):
             "tipo_reunion": "presencial",
             "fecha": "2023-06-01",
             "hora": "10:00",
+            "tema_reunion": "Consulta jurídica general",
             "datos": {"nombre": None, "email": None, "telefono": None}
         }
         
@@ -122,6 +131,7 @@ class TestConversation(unittest.TestCase):
             "tipo_reunion": "presencial",
             "fecha": "2023-06-01",
             "hora": "10:00",
+            "tema_reunion": "Consulta sobre herencia",
             "datos": {"nombre": "Test User", "email": "test@example.com", "telefono": "612345678"}
         }
         
@@ -139,6 +149,7 @@ class TestConversation(unittest.TestCase):
         self.user_states[user_id] = {
             "estado": "esperando_preferencia_fecha",
             "tipo_reunion": "presencial",
+            "tema_reunion": "Consulta sobre divorcio",
             "fecha": None,
             "hora": None,
             "datos": {"nombre": None, "email": None, "telefono": None}
@@ -161,6 +172,7 @@ class TestConversation(unittest.TestCase):
         self.user_states[user_id] = {
             "estado": "esperando_preferencia_fecha",
             "tipo_reunion": "telefonica",
+            "tema_reunion": "Consulta rápida",
             "fecha": None,
             "hora": None,
             "datos": {"nombre": None, "email": None, "telefono": None}

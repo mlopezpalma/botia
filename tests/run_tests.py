@@ -10,6 +10,8 @@ from tests.test_data_extraction import TestDataExtraction
 from tests.test_intent_model import TestIntentModel
 from tests.test_helpers import TestHelpers
 from tests.test_conversation import TestConversation
+from tests.test_calendar_service import TestCalendarService
+from tests.test_events import TestEventos
 
 def run_tests():
     """Ejecuta todos los tests unitarios y de integración."""
@@ -22,6 +24,8 @@ def run_tests():
     test_suite.addTest(unittest.makeSuite(TestIntentModel))
     test_suite.addTest(unittest.makeSuite(TestHelpers))
     test_suite.addTest(unittest.makeSuite(TestConversation))
+    test_suite.addTest(unittest.makeSuite(TestCalendarService))
+    test_suite.addTest(unittest.makeSuite(TestEventos))
     
     # Ejecutar los tests
     print("\n== Ejecutando tests del Bot de Agendamiento de Citas Legales ==\n")

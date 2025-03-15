@@ -102,9 +102,10 @@ EMAIL_CONFIG = {
 citas_db = {}
 clientes_db = {}
 
-# Configuración para los menús de selección
+# Actualizar las opciones de menú para incluir la opción de modificar datos
 MENSAJES_MENU = {
     "tipo_reunion": "¿Qué tipo de reunión prefieres? [MENU:Presencial|Videoconferencia|Telefónica]",
     "preferencia_fecha": "¿Cómo te gustaría agendar tu cita? [MENU:Lo antes posible|En un día específico|Ver calendario]",
-    "confirmacion": "¿Deseas confirmar esta cita? [MENU:Sí, confirmar|No, cambiar detalles]"
+    "confirmacion": "¿Deseas confirmar esta cita? [MENU:Sí, confirmar|No, cambiar detalles]",
+    "cambio_datos": "¿Qué información deseas cambiar? [MENU:Fecha y hora|Tipo de reunión|Tema|Mis datos personales]"
 }
