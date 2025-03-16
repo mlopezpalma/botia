@@ -51,9 +51,35 @@ def generar_respuesta(mensaje, user_id, user_states):
             # Evitar que el tipo de reunión se confunda con el nombre
             if campo == "nombre" and valor.lower() in ["presencial", "videoconferencia", "telefonica", "telefónica"]:
                 continue  # Saltar este valor para evitar confusión
+            
             estado_usuario["datos"][campo] = valor
             print(f"DEBUG - identificado {campo}: {valor}")
-    
+            
+            # Si se identifica un email o teléfono, intentar buscar el cliente
+            if campo == "email" and not estado_usuario["datos"]["nombre"]:
+                cliente = _buscar_cliente_por_email(valor)
+                if cliente:
+                    # Completar los datos faltantes del cliente
+                    if not estado_usuario["datos"]["nombre"] and cliente.get("nombre"):
+                        estado_usuario["datos"]["nombre"] = cliente["nombre"]
+                        print(f"DEBUG - recuperado nombre: {cliente['nombre']} de cliente existente")
+                    if not estado_usuario["datos"]["telefono"] and cliente.get("telefono"):
+                        estado_usuario["datos"]["telefono"] = cliente["telefono"]
+                        print(f"DEBUG - recuperado teléfono: {cliente['telefono']} de cliente existente")
+            
+            # Si se identifica un teléfono, intentar buscar el cliente
+            elif campo == "telefono" and not estado_usuario["datos"]["nombre"]:
+                cliente = _buscar_cliente_por_telefono(valor)
+                if cliente:
+                    # Completar los datos faltantes del cliente
+                    if not estado_usuario["datos"]["nombre"] and cliente.get("nombre"):
+                        estado_usuario["datos"]["nombre"] = cliente["nombre"]
+                        print(f"DEBUG - recuperado nombre: {cliente['nombre']} de cliente existente")
+                    if not estado_usuario["datos"]["email"] and cliente.get("email"):
+                        estado_usuario["datos"]["email"] = cliente["email"]
+                        print(f"DEBUG - recuperado email: {cliente['email']} de cliente existente")
+
+
     # Manejo de estados específicos
     if estado_usuario["estado"] == "inicial":
         intencion = identificar_intencion(mensaje)
@@ -203,6 +229,25 @@ def generar_respuesta(mensaje, user_id, user_states):
         # Verificar si ya tenemos todos los datos del cliente
         datos_faltantes = _verificar_datos_faltantes(estado_usuario["datos"])
         
+        # Si hemos reconocido al cliente, mostrar mensaje de bienvenida
+        if estado_usuario["datos"]["nombre"] and estado_usuario["datos"]["email"] and estado_usuario["datos"]["telefono"]:
+            # Verificar si estos datos provienen de la base de datos (cliente existente)
+            cliente_existente = _buscar_cliente_por_email(estado_usuario["datos"]["email"])
+            if cliente_existente:
+                estado_usuario["estado"] = "esperando_confirmacion"
+                fecha_formateada = datetime.datetime.strptime(estado_usuario["fecha"], "%Y-%m-%d").strftime("%d/%m/%Y")
+                duracion = TIPOS_REUNION[estado_usuario["tipo_reunion"]]["duracion_cliente"]
+                return (f"¡Bienvenido de nuevo, {estado_usuario['datos']['nombre']}! Hemos reconocido tus datos. Resumiendo tu cita:\n"
+                        f"- Tipo: {estado_usuario['tipo_reunion']}\n"
+                        f"- Fecha: {fecha_formateada}\n"
+                        f"- Hora: {estado_usuario['hora']}\n"
+                        f"- Duración: {duracion} minutos\n"
+                        f"- Tema: {estado_usuario['tema_reunion']}\n"
+                        f"- Nombre: {estado_usuario['datos']['nombre']}\n"
+                        f"- Email: {estado_usuario['datos']['email']}\n"
+                        f"- Teléfono: {estado_usuario['datos']['telefono']}\n\n" +
+                        MENSAJES_MENU["confirmacion"])
+        
         if datos_faltantes:
             campos = ", ".join(datos_faltantes)
             return f"Aún necesito los siguientes datos: {campos}. ¿Podrías proporcionármelos?"
@@ -221,6 +266,7 @@ def generar_respuesta(mensaje, user_id, user_states):
                     f"- Email: {estado_usuario['datos']['email']}\n"
                     f"- Teléfono: {estado_usuario['datos']['telefono']}\n\n" +
                     MENSAJES_MENU["confirmacion"])
+
     
     elif estado_usuario["estado"] == "esperando_confirmacion":
         intencion = identificar_intencion(mensaje)
@@ -285,6 +331,40 @@ def _procesar_seleccion_hora(estado_usuario):
         if "nombre" not in datos_faltantes:
             datos_faltantes.append("nombre")
     
+    # Verificar si el cliente existe por su email (si tenemos el email)
+    if estado_usuario["datos"]["email"] and not estado_usuario["datos"]["nombre"]:
+        cliente = _buscar_cliente_por_email(estado_usuario["datos"]["email"])
+        if cliente and cliente.get("nombre"):
+            estado_usuario["datos"]["nombre"] = cliente["nombre"]
+            datos_faltantes = _verificar_datos_faltantes(estado_usuario["datos"])
+    
+    # Verificar si el cliente existe por su teléfono (si tenemos el teléfono)
+    if estado_usuario["datos"]["telefono"] and not estado_usuario["datos"]["nombre"]:
+        cliente = _buscar_cliente_por_telefono(estado_usuario["datos"]["telefono"])
+        if cliente and cliente.get("nombre"):
+            estado_usuario["datos"]["nombre"] = cliente["nombre"]
+            if not estado_usuario["datos"]["email"] and cliente.get("email"):
+                estado_usuario["datos"]["email"] = cliente["email"]
+            datos_faltantes = _verificar_datos_faltantes(estado_usuario["datos"])
+    
+    # Si el cliente es reconocido (tenemos todos los datos), mostrar mensaje de bienvenida
+    if not datos_faltantes:
+        cliente_existente = _buscar_cliente_por_email(estado_usuario["datos"]["email"])
+        if cliente_existente:
+            estado_usuario["estado"] = "esperando_confirmacion"
+            fecha_formateada = datetime.datetime.strptime(estado_usuario["fecha"], "%Y-%m-%d").strftime("%d/%m/%Y")
+            duracion = TIPOS_REUNION[estado_usuario["tipo_reunion"]]["duracion_cliente"]
+            return (f"¡Bienvenido de nuevo, {estado_usuario['datos']['nombre']}! Hemos reconocido tus datos. Resumiendo tu cita:\n"
+                    f"- Tipo: {estado_usuario['tipo_reunion']}\n"
+                    f"- Fecha: {fecha_formateada}\n"
+                    f"- Hora: {estado_usuario['hora']}\n"
+                    f"- Duración: {duracion} minutos\n"
+                    f"- Tema: {estado_usuario['tema_reunion']}\n"
+                    f"- Nombre: {estado_usuario['datos']['nombre']}\n"
+                    f"- Email: {estado_usuario['datos']['email']}\n"
+                    f"- Teléfono: {estado_usuario['datos']['telefono']}\n\n" +
+                    MENSAJES_MENU["confirmacion"])
+    
     if datos_faltantes:
         campos = ", ".join(datos_faltantes)
         return f"Para confirmar tu cita, necesito los siguientes datos: {campos}. ¿Podrías proporcionármelos?"
@@ -303,7 +383,7 @@ def _procesar_seleccion_hora(estado_usuario):
                 f"- Email: {estado_usuario['datos']['email']}\n"
                 f"- Teléfono: {estado_usuario['datos']['telefono']}\n\n" +
                 MENSAJES_MENU["confirmacion"])
-
+    
 def _preguntar_cambios(estado_usuario):
     """Pregunta al usuario qué desea cambiar de la cita."""
     # Actualizar el estado para manejar la respuesta sobre qué cambiar
@@ -364,3 +444,49 @@ def _confirmar_cita(estado_usuario, user_id, user_states):
             f"Tema de la consulta: {estado_usuario['tema_reunion']}\n\n"
             f"Hemos enviado un correo de confirmación a {estado_usuario['datos']['email']} con todos los detalles.\n\n"
             f"Gracias por usar nuestro servicio. ¿Hay algo más en lo que pueda ayudarte?")
+
+
+def _buscar_cliente_por_email(email):
+    """
+    Busca si un cliente existe en la base de datos por su email.
+    
+    Args:
+        email: Email del cliente a buscar
+        
+    Returns:
+        Diccionario con los datos del cliente si existe, None en caso contrario
+    """
+    if email in clientes_db:
+        return clientes_db[email]
+    return None
+
+# 2. Añadir una función para buscar clientes por teléfono
+def _buscar_cliente_por_telefono(telefono):
+    """
+    Busca si un cliente existe en la base de datos por su teléfono.
+    
+    Args:
+        telefono: Número de teléfono del cliente a buscar
+        
+    Returns:
+        Diccionario con los datos del cliente si existe, None en caso contrario
+    """
+    for email, cliente in clientes_db.items():
+        if cliente.get("telefono") == telefono:
+            return cliente
+    return None
+
+def _buscar_cliente_por_telefono(telefono):
+    """
+    Busca si un cliente existe en la base de datos por su teléfono.
+    
+    Args:
+        telefono: Número de teléfono del cliente a buscar
+        
+    Returns:
+        Diccionario con los datos del cliente si existe, None en caso contrario
+    """
+    for email, cliente in clientes_db.items():
+        if cliente.get("telefono") == telefono:
+            return cliente
+    return None
