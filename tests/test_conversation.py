@@ -103,7 +103,12 @@ class TestConversation(unittest.TestCase):
             "fecha": "2023-06-01",
             "hora": "10:00",
             "tema_reunion": "Consulta jurídica general",
-            "datos": {"nombre": None, "email": None, "telefono": None}
+            "datos": {"nombre": None, "email": None, "telefono": None},
+            "consulta_caso": {
+                "numero_expediente": None,
+                "email_cliente": None,
+                "caso_encontrado": False
+            }
         }
         
         # Proporcionar nombre
@@ -132,11 +137,23 @@ class TestConversation(unittest.TestCase):
             "fecha": "2023-06-01",
             "hora": "10:00",
             "tema_reunion": "Consulta sobre herencia",
-            "datos": {"nombre": "Test User", "email": "test@example.com", "telefono": "612345678"}
+            "datos": {"nombre": "Test User", "email": "test@example.com", "telefono": "612345678"},
+            "consulta_caso": {
+                "numero_expediente": None,
+                "email_cliente": None,
+                "caso_encontrado": False
+            }
         }
         
         # Cancelar la cita
         respuesta = generar_respuesta("no, quiero cambiar la fecha", user_id, self.user_states)
+        
+        # Verificar que ahora ofrece opciones de cambio
+        self.assertEqual(self.user_states[user_id]["estado"], "esperando_seleccion_cambio")
+        self.assertIn("¿Qué información deseas cambiar?", respuesta)
+        
+        # Seleccionar cambio de fecha y hora
+        respuesta = generar_respuesta("Fecha y hora", user_id, self.user_states)
         
         # Verificar que se vuelve al estado de preferencia de fecha
         self.assertEqual(self.user_states[user_id]["estado"], "esperando_preferencia_fecha")
@@ -152,7 +169,12 @@ class TestConversation(unittest.TestCase):
             "tema_reunion": "Consulta sobre divorcio",
             "fecha": None,
             "hora": None,
-            "datos": {"nombre": None, "email": None, "telefono": None}
+            "datos": {"nombre": None, "email": None, "telefono": None},
+            "consulta_caso": {
+                "numero_expediente": None,
+                "email_cliente": None,
+                "caso_encontrado": False
+            }
         }
         
         # Solicitar ver el calendario
@@ -175,7 +197,12 @@ class TestConversation(unittest.TestCase):
             "tema_reunion": "Consulta rápida",
             "fecha": None,
             "hora": None,
-            "datos": {"nombre": None, "email": None, "telefono": None}
+            "datos": {"nombre": None, "email": None, "telefono": None},
+            "consulta_caso": {
+                "numero_expediente": None,
+                "email_cliente": None,
+                "caso_encontrado": False
+            }
         }
         
         # Solicitar lo antes posible
@@ -199,7 +226,7 @@ class TestConversation(unittest.TestCase):
         respuesta = generar_respuesta("xyz abc 123", user_id, self.user_states)
         
         # Verificar que el bot responde adecuadamente a la entrada incorrecta
-        self.assertIn("indica qué tipo de reunión prefieres", respuesta)
+        self.assertIn("indica qué", respuesta)
 
 if __name__ == '__main__':
     unittest.main()

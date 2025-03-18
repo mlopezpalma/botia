@@ -109,3 +109,70 @@ MENSAJES_MENU = {
     "confirmacion": "¿Deseas confirmar esta cita? [MENU:Sí, confirmar|No, cambiar detalles]",
     "cambio_datos": "¿Qué información deseas cambiar? [MENU:Fecha y hora|Tipo de reunión|Tema|Mis datos personales]"
 }
+
+# Base de datos simulada para casos legales
+casos_db = {
+    "C2023-001": {
+        "cliente_email": "juan.perez@example.com",
+        "titulo": "Desalojo por impago",
+        "estado": "en_proceso",
+        "descripcion": "Proceso de desalojo por falta de pago durante 3 meses",
+        "abogado": "Dra. García",
+        "fecha_inicio": "2023-01-15",
+        "ultima_actualizacion": "2023-03-20",
+        "notas": [
+            {"fecha": "2023-01-15", "texto": "Presentación de demanda"},
+            {"fecha": "2023-02-10", "texto": "Notificación al inquilino"},
+            {"fecha": "2023-03-20", "texto": "Audiencia preliminar programada para el 15/04/2023"}
+        ]
+    },
+    "C2023-002": {
+        "cliente_email": "maria.lopez@example.com",
+        "titulo": "Divorcio de mutuo acuerdo",
+        "estado": "pendiente_documentacion",
+        "descripcion": "Divorcio consensuado con reparto de bienes",
+        "abogado": "Dr. Martínez",
+        "fecha_inicio": "2023-02-05",
+        "ultima_actualizacion": "2023-03-15",
+        "notas": [
+            {"fecha": "2023-02-05", "texto": "Consulta inicial y recogida de información"},
+            {"fecha": "2023-03-15", "texto": "Pendiente de documentación sobre propiedades inmobiliarias"}
+        ]
+    },
+    "C2023-003": {
+        "cliente_email": "pedro.sanchez@example.com",
+        "titulo": "Reclamación por despido improcedente",
+        "estado": "finalizado",
+        "descripcion": "Demanda laboral por despido sin causa justificada",
+        "abogado": "Dra. Rodríguez",
+        "fecha_inicio": "2022-11-10",
+        "ultima_actualizacion": "2023-02-28",
+        "notas": [
+            {"fecha": "2022-11-10", "texto": "Recogida de documentación y presentación de demanda"},
+            {"fecha": "2023-01-20", "texto": "Juicio celebrado con resultado favorable"},
+            {"fecha": "2023-02-28", "texto": "Indemnización recibida, caso cerrado"}
+        ]
+    }
+}
+
+# Añadir definiciones de estado para usar en los mensajes
+ESTADOS_CASO = {
+    "nuevo": "Caso recién registrado, en fase inicial",
+    "pendiente_documentacion": "Pendiente de recibir documentación adicional",
+    "en_proceso": "En trámite con actuaciones en curso",
+    "en_espera": "En espera de resolución externa (juzgado, administración, etc.)",
+    "finalizado": "Caso resuelto y cerrado"
+}
+
+# Modificar INTENCIONES para incluir consulta de estado
+# Añade esto a INTENCIONES en config.py
+INTENCIONES["consultar_estado"] = ["estado de mi caso", "consultar mi caso", "cómo va mi caso", 
+                                 "estado del expediente", "seguimiento", "actualización de mi caso", 
+                                 "información de mi expediente", "verificar estado"]
+                                 
+# Añadir esta intención también a FRASES_INTENCIONES y ETIQUETAS_INTENCIONES
+# Ej: FRASES_INTENCIONES.extend(["estado de mi caso", "consultar mi caso", "cómo va mi caso"])
+# Ej: ETIQUETAS_INTENCIONES.extend(["consultar_estado", "consultar_estado", "consultar_estado"])
+
+# Añadir mensaje de menú para consulta de estado
+MENSAJES_MENU["consulta_estado"] = "Para consultar el estado de tu caso, necesito que me proporciones: [MENU:Mi número de expediente|Mi email para buscar mis casos]"

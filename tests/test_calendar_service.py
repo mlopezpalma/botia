@@ -10,7 +10,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from handlers.calendar_service import (
     obtener_horarios_disponibles,
     encontrar_proxima_fecha_disponible,
-    agendar_en_calendario
+    agendar_en_calendario,
+    obtener_dias_disponibles
 )
 
 class TestCalendarService(unittest.TestCase):
@@ -110,6 +111,27 @@ class TestCalendarService(unittest.TestCase):
         
         # Verificar que el evento devuelto es el simulado
         self.assertEqual(evento, evento_simulado)
+    
+    @patch('handlers.calendar_service._obtener_dias_disponibles_simulados')
+    def test_obtener_dias_disponibles(self, mock_dias_simulados):
+        """Prueba la función para obtener días disponibles en un mes."""
+        # Configurar días simulados
+        dias_simulados = [1, 3, 5, 8, 10, 12, 15, 17, 19, 22, 24, 26, 29]
+        mock_dias_simulados.return_value = dias_simulados
+        
+        # Llamar a la función con datos de prueba
+        mes = 6  # Junio
+        anio = 2023
+        
+        # Forzar un error en obtener_horarios_disponibles para usar la simulación
+        with patch('handlers.calendar_service.obtener_horarios_disponibles', side_effect=Exception("Error simulado")):
+            dias = obtener_dias_disponibles(mes, anio, self.tipo_reunion_test)
+            
+            # Verificar que se usó la versión simulada
+            mock_dias_simulados.assert_called_once_with(mes, anio, self.tipo_reunion_test)
+            
+            # Verificar que devuelve los días simulados
+            self.assertEqual(dias, dias_simulados)
 
 if __name__ == '__main__':
     unittest.main()

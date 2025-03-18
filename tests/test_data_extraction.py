@@ -90,7 +90,7 @@ class TestDataExtraction(unittest.TestCase):
         self.assertEqual(datos["telefono"], "654321987")
         
         # Casos que no deberían identificar datos
-        datos = identificar_datos_personales("xyz 123 abc")
+        datos = identificar_datos_personales("No hay datos personales aquí")
         self.assertIsNone(datos["nombre"])
         self.assertIsNone(datos["email"])
         self.assertIsNone(datos["telefono"])

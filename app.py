@@ -165,6 +165,13 @@ def widget_js():
     # Servir el archivo JavaScript del widget desde la carpeta static
     return send_from_directory('static', 'chat-widget.js')
 
+# Importar la integración de WhatsApp
+from whatsapp_integration import WhatsAppBot
+
+# Inicializar la integración de WhatsApp
+whatsapp_bot = WhatsAppBot(app)
+
+
 if __name__ == '__main__':
     app.run(debug=True)
 

@@ -58,6 +58,13 @@ class TestIntentModel(unittest.TestCase):
         self.assertEqual(identificar_intencion("no, quiero otra fecha"), "negacion")
         self.assertEqual(identificar_intencion("cancelar"), "negacion")
     
+    def test_identificar_intencion_consultar_estado(self):
+        """Prueba la identificación de intenciones de consulta de estado de caso."""
+        self.assertEqual(identificar_intencion("estado de mi caso"), "consultar_estado")
+        self.assertEqual(identificar_intencion("cómo va mi caso"), "consultar_estado")
+        self.assertEqual(identificar_intencion("quiero verificar el estado de mi expediente"), "consultar_estado")
+        self.assertEqual(identificar_intencion("información de mi expediente"), "consultar_estado")
+    
     def test_identificar_intencion_desconocida(self):
         """Prueba la identificación de intenciones desconocidas."""
         self.assertEqual(identificar_intencion("xyz abc 123"), "desconocido")

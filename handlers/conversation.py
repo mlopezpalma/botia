@@ -13,6 +13,11 @@ from handlers.calendar_service import (
 )
 from handlers.email_service import enviar_correo_confirmacion
 
+# Añadir importación de casos_db y ESTADOS_CASO al inicio del archivo
+from config import HORARIOS_POR_TIPO, TIPOS_REUNION, INTENCIONES, MENSAJES_MENU, citas_db, clientes_db, casos_db, ESTADOS_CASO
+
+
+# Modificar la función reset_conversacion para incluir el nuevo estado
 def reset_conversacion(user_id, user_states):
     """
     Reinicia el estado de la conversación para un usuario específico.
@@ -27,7 +32,12 @@ def reset_conversacion(user_id, user_states):
         "fecha": None,
         "hora": None,
         "tema_reunion": None,
-        "datos": {"nombre": None, "email": None, "telefono": None}
+        "datos": {"nombre": None, "email": None, "telefono": None},
+        "consulta_caso": {
+            "numero_expediente": None,
+            "email_cliente": None,
+            "caso_encontrado": False
+        }
     }
     print(f"DEBUG - Conversación reiniciada para usuario: {user_id}")
 
@@ -86,19 +96,30 @@ def generar_respuesta(mensaje, user_id, user_states):
         
         if intencion == "saludo":
             estado_usuario["estado"] = "esperando_inicio"
-            return ("¡Hola! Soy el asistente de citas legales. Puedo ayudarte a agendar una consulta con nuestros abogados.\n" + 
-                    MENSAJES_MENU["tipo_reunion"])
+            return ("¡Hola! Soy el asistente de citas legales. Puedo ayudarte a agendar una consulta con nuestros abogados o consultar el estado de tu caso.\n" + 
+                    "¿Qué te gustaría hacer? [MENU:Agendar una cita|Consultar estado de mi caso]")
         
         elif intencion == "agendar":
             estado_usuario["estado"] = "esperando_tipo_reunion"
             return MENSAJES_MENU["tipo_reunion"]
+            
+        elif intencion == "consultar_estado":
+            estado_usuario["estado"] = "esperando_opcion_consulta"
+            return MENSAJES_MENU["consulta_estado"]
         
         else:
-            # Si no es saludo ni agendar, asumir que quiere agendar
-            estado_usuario["estado"] = "esperando_tipo_reunion"
-            return ("Bienvenido al asistente de citas legales. Para comenzar, necesito saber " + 
-                   MENSAJES_MENU["tipo_reunion"])
+            # Si no se identifica intención específica, ofrecer opciones
+            estado_usuario["estado"] = "esperando_inicio"
+            return ("Bienvenido al asistente de citas legales. Puedo ayudarte a agendar una consulta o verificar el estado de tu caso.\n" + 
+                   "¿Qué te gustaría hacer? [MENU:Agendar una cita|Consultar estado de mi caso]")
     
+    elif estado_usuario["estado"] == "esperando_inicio":
+        # Verificar si quiere consultar estado del caso
+        if "estado" in mensaje_lower or "consultar" in mensaje_lower or "caso" in mensaje_lower or "expediente" in mensaje_lower:
+            estado_usuario["estado"] = "esperando_opcion_consulta"
+            return MENSAJES_MENU["consulta_estado"]   
+
+
     elif estado_usuario["estado"] == "esperando_inicio" or estado_usuario["estado"] == "esperando_tipo_reunion":
         # Identificar tipo de reunión
         tipo_reunion = identificar_tipo_reunion(mensaje)
@@ -303,7 +324,60 @@ def generar_respuesta(mensaje, user_id, user_states):
             
         else:
             return "No he entendido qué deseas cambiar. Por favor, selecciona una de las opciones: Fecha y hora, Tipo de reunión, Tema, o Mis datos personales."
-    
+    elif estado_usuario["estado"] == "esperando_opcion_consulta":
+        # Determinar si quiere buscar por número o por email
+        if "numero" in mensaje_lower or "expediente" in mensaje_lower or mensaje_lower == "mi número de expediente":
+            estado_usuario["estado"] = "esperando_numero_expediente"
+            return "Por favor, indícame el número de expediente de tu caso (ej: C2023-001):"
+            
+        elif "email" in mensaje_lower or "correo" in mensaje_lower or mensaje_lower == "mi email para buscar mis casos":
+            estado_usuario["estado"] = "esperando_email_cliente"
+            return "Por favor, indícame tu dirección de email para buscar tus casos:"
+            
+        else:
+            return "No he entendido tu elección. " + MENSAJES_MENU["consulta_estado"]
+            
+    elif estado_usuario["estado"] == "esperando_numero_expediente":
+        # Buscar caso por número de expediente
+        numero_expediente = mensaje.strip().upper()
+        resultado = _buscar_caso_por_numero(numero_expediente)
+        
+        if resultado:
+            estado_usuario["consulta_caso"]["numero_expediente"] = numero_expediente
+            estado_usuario["consulta_caso"]["caso_encontrado"] = True
+            
+            # Mostrar detalles del caso
+            return _formatear_detalles_caso(resultado)
+        else:
+            return "No he podido encontrar ningún caso con el número de expediente proporcionado. Por favor, verifica el número e inténtalo de nuevo, o elige otra opción. " + MENSAJES_MENU["consulta_estado"]
+            
+    elif estado_usuario["estado"] == "esperando_email_cliente":
+        # Buscar casos por email del cliente
+        email = mensaje.strip().lower()
+        casos = _buscar_casos_por_email(email)
+        
+        if casos:
+            estado_usuario["consulta_caso"]["email_cliente"] = email
+            estado_usuario["consulta_caso"]["caso_encontrado"] = True
+            
+            # Si hay varios casos, mostrar listado
+            if len(casos) > 1:
+                respuesta = f"Hemos encontrado {len(casos)} casos asociados a tu email:\n\n"
+                for i, caso in enumerate(casos, 1):
+                    respuesta += f"{i}. Expediente {caso['numero']}: {caso['titulo']} - {caso['estado']}\n"
+                
+                respuesta += "\nPara ver detalles de un caso específico, escribe su número de expediente (ej: C2023-001)."
+                estado_usuario["estado"] = "esperando_numero_expediente"
+                return respuesta
+            else:
+                # Si hay un solo caso, mostrar detalles
+                return _formatear_detalles_caso(casos[0])
+        else:
+            return "No hemos encontrado casos asociados al email proporcionado. Si crees que es un error, por favor contacta directamente con nuestras oficinas o verifica el email e inténtalo de nuevo."
+
+
+
+
     # Si no coincide con ningún estado específico, respuesta genérica
     return "Disculpa, no he entendido tu solicitud. ¿Puedes reformularla? Puedo ayudarte a agendar citas legales presenciales, por videoconferencia o telefónicas."
 
@@ -490,3 +564,81 @@ def _buscar_cliente_por_telefono(telefono):
         if cliente.get("telefono") == telefono:
             return cliente
     return None
+
+
+# Añade estas funciones auxiliares para la consulta de casos al final del archivo
+
+def _buscar_caso_por_numero(numero_expediente):
+    """
+    Busca un caso legal por su número de expediente.
+    
+    Args:
+        numero_expediente: Número de referencia del caso
+        
+    Returns:
+        Diccionario con la información del caso o None si no se encuentra
+    """
+    if numero_expediente in casos_db:
+        caso = casos_db[numero_expediente].copy()
+        caso["numero"] = numero_expediente  # Añadir el número al diccionario
+        return caso
+    return None
+
+def _buscar_casos_por_email(email):
+    """
+    Busca todos los casos asociados a un cliente por su email.
+    
+    Args:
+        email: Email del cliente
+        
+    Returns:
+        Lista de diccionarios con la información de los casos encontrados
+    """
+    casos_encontrados = []
+    
+    for numero, caso in casos_db.items():
+        if caso["cliente_email"].lower() == email.lower():
+            caso_copia = caso.copy()
+            caso_copia["numero"] = numero  # Añadir el número al diccionario
+            casos_encontrados.append(caso_copia)
+    
+    return casos_encontrados
+
+def _formatear_detalles_caso(caso):
+    """
+    Formatea los detalles de un caso para mostrarlos al cliente.
+    
+    Args:
+        caso: Diccionario con la información del caso
+        
+    Returns:
+        String con la información formateada del caso
+    """
+    # Obtener la descripción del estado o usar el estado directamente
+    estado_desc = ESTADOS_CASO.get(caso["estado"], caso["estado"].replace("_", " ").title())
+    
+    # Formatear fecha
+    from datetime import datetime
+    fecha_actualiz = datetime.strptime(caso["ultima_actualizacion"], "%Y-%m-%d").strftime("%d/%m/%Y")
+    
+    # Preparar la respuesta
+    respuesta = (
+        f"📁 Información del caso: {caso['numero']}\n\n"
+        f"Asunto: {caso['titulo']}\n"
+        f"Estado actual: {estado_desc}\n"
+        f"Abogado asignado: {caso['abogado']}\n"
+        f"Última actualización: {fecha_actualiz}\n\n"
+        f"Descripción: {caso['descripcion']}\n\n"
+        f"Últimas actuaciones:\n"
+    )
+    
+    # Añadir notas recientes (limitadas a las 3 últimas)
+    notas = sorted(caso["notas"], key=lambda x: x["fecha"], reverse=True)
+    for i, nota in enumerate(notas[:3]):
+        fecha_nota = datetime.strptime(nota["fecha"], "%Y-%m-%d").strftime("%d/%m/%Y")
+        respuesta += f"- {fecha_nota}: {nota['texto']}\n"
+    
+    # Añadir mensaje final
+    respuesta += "\nSi necesitas más información o programar una cita de seguimiento, no dudes en indicármelo."
+    
+    return respuesta

@@ -35,6 +35,11 @@ class TestEventos(unittest.TestCase):
                 "nombre": "Usuario Prueba",
                 "email": "usuario.prueba@example.com",
                 "telefono": "612345678"
+            },
+            "consulta_caso": {
+                "numero_expediente": None,
+                "email_cliente": None,
+                "caso_encontrado": False
             }
         }
         
@@ -95,6 +100,7 @@ class TestEventos(unittest.TestCase):
         self.assertIsNone(estado_reseteado["datos"]["nombre"])
         self.assertIsNone(estado_reseteado["datos"]["email"])
         self.assertIsNone(estado_reseteado["datos"]["telefono"])
+        self.assertFalse(estado_reseteado["consulta_caso"]["caso_encontrado"])
 
 if __name__ == '__main__':
     unittest.main()

@@ -230,7 +230,14 @@
     // Función para mostrar el calendario
     calendarButton.addEventListener('click', function() {
         if (calendarDiv.style.display === 'none') {
-            // Generar un calendario simple
+            // Verificar si se ha seleccionado un tipo de reunión
+            var tipoReunion = getTipoReunion();
+            if (!tipoReunion) {
+                addBotMessage("Por favor, primero selecciona un tipo de reunión (presencial, videoconferencia o telefónica).");
+                return;
+            }
+            
+            // Generar un calendario con los días disponibles
             var today = new Date();
             var calendarHTML = generateCalendar(today);
             calendarDiv.innerHTML = calendarHTML;
@@ -246,10 +253,76 @@
                     sendMessage();
                 });
             });
+            
+            // Añadir eventos a los botones de navegación
+            var prevMonthButton = calendarDiv.querySelector('#prev-month');
+            var nextMonthButton = calendarDiv.querySelector('#next-month');
+            
+            prevMonthButton.addEventListener('click', function() {
+                var currentMonth = today.getMonth();
+                today.setMonth(currentMonth - 1);
+                calendarDiv.innerHTML = generateCalendar(today);
+                
+                // Volver a añadir eventos a las fechas y botones
+                dateCells = calendarDiv.querySelectorAll('.date-cell');
+                dateCells.forEach(function(cell) {
+                    cell.addEventListener('click', function() {
+                        var date = this.getAttribute('data-date');
+                        inputBox.value = 'Quiero una cita el ' + date;
+                        calendarDiv.style.display = 'none';
+                        sendMessage();
+                    });
+                });
+                
+                // Volver a añadir eventos a los botones de navegación
+                prevMonthButton = calendarDiv.querySelector('#prev-month');
+                nextMonthButton = calendarDiv.querySelector('#next-month');
+                
+                prevMonthButton.addEventListener('click', function() {
+                    today.setMonth(today.getMonth() - 1);
+                    calendarDiv.innerHTML = generateCalendar(today);
+                });
+                
+                nextMonthButton.addEventListener('click', function() {
+                    today.setMonth(today.getMonth() + 1);
+                    calendarDiv.innerHTML = generateCalendar(today);
+                });
+            });
+            
+            nextMonthButton.addEventListener('click', function() {
+                var currentMonth = today.getMonth();
+                today.setMonth(currentMonth + 1);
+                calendarDiv.innerHTML = generateCalendar(today);
+            
+                // Volver a añadir eventos a las fechas y botones
+                dateCells = calendarDiv.querySelectorAll('.date-cell');
+                dateCells.forEach(function(cell) {
+                    cell.addEventListener('click', function() {
+                        var date = this.getAttribute('data-date');
+                        inputBox.value = 'Quiero una cita el ' + date;
+                        calendarDiv.style.display = 'none';
+                        sendMessage();
+                    });
+                });
+                
+                // Volver a añadir eventos a los botones de navegación
+                prevMonthButton = calendarDiv.querySelector('#prev-month');
+                nextMonthButton = calendarDiv.querySelector('#next-month');
+                
+                prevMonthButton.addEventListener('click', arguments.callee);
+                nextMonthButton.addEventListener('click', arguments.callee);
+            });
         } else {
             calendarDiv.style.display = 'none';
         }
     });
+    
+
+
+
+
+
+
     
     // Generar HTML del calendario
     function generateCalendar(date) {
@@ -262,12 +335,33 @@
         var monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
         
         var html = '<div style="text-align:center; margin-bottom:10px;"><strong>' + monthNames[month] + ' ' + year + '</strong></div>';
+        
+        // Añadir botones para navegar entre meses
+        html += '<div style="display:flex; justify-content:space-between; margin-bottom:10px;">';
+        html += '<button id="prev-month" style="padding:5px 10px; background-color:#f0f0f0; border:1px solid #ccc; cursor:pointer;">&lt; Anterior</button>';
+        html += '<button id="next-month" style="padding:5px 10px; background-color:#f0f0f0; border:1px solid #ccc; cursor:pointer;">Siguiente &gt;</button>';
+        html += '</div>';
+        
+        // Mostrar el tipo de reunión seleccionado
+        var tipoReunion = getTipoReunion();
+        if (tipoReunion) {
+            html += '<div style="text-align:center; margin-bottom:10px;"><small>Mostrando disponibilidad para: <strong>' + tipoReunion + '</strong></small></div>';
+        } else {
+            html += '<div style="text-align:center; margin-bottom:10px;"><small>Primero selecciona un tipo de reunión para ver la disponibilidad</small></div>';
+        }
+        
         html += '<table style="width:100%; border-collapse:collapse;">';
         html += '<tr>';
         ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].forEach(function(day) {
             html += '<th style="padding:5px; text-align:center; font-size:12px;">' + day + '</th>';
         });
         html += '</tr>';
+        
+        // Obtener días disponibles para el mes actual
+        var diasDisponibles = [];
+        if (tipoReunion) {
+            diasDisponibles = obtenerDiasDisponibles(month + 1, year, tipoReunion);
+        }
         
         // Ajustar el primer día (0 = Domingo, 1 = Lunes, ..., 6 = Sábado)
         var firstDayOfWeek = firstDay.getDay();
@@ -281,12 +375,12 @@
             html += '<tr>';
             for (var j = 0; j < 7; j++) {
                 var dayClass = '';
-                var isEnabled = true;
+                var isEnabled = false;
                 
                 // Verificar si es un día del mes actual
-                if (currentDate.getMonth() !== month) {
+                var isDifferentMonth = currentDate.getMonth() !== month;
+                if (isDifferentMonth) {
                     dayClass = 'other-month';
-                    isEnabled = false;
                 }
                 
                 // Verificar si es hoy
@@ -295,23 +389,33 @@
                 }
                 
                 // Verificar si es fin de semana
-                if (currentDate.getDay() === 0 || currentDate.getDay() === 6) {
+                var isWeekend = currentDate.getDay() === 0 || currentDate.getDay() === 6;
+                if (isWeekend) {
                     dayClass += ' weekend';
-                    isEnabled = false;
                 }
                 
                 // Verificar si es un día pasado
-                if (currentDate < new Date().setHours(0, 0, 0, 0)) {
+                var isPastDay = currentDate < new Date().setHours(0, 0, 0, 0);
+                if (isPastDay) {
                     dayClass += ' past';
-                    isEnabled = false;
+                }
+                
+                // Verificar si es un día con disponibilidad
+                var dayOfMonth = currentDate.getDate();
+                var isAvailable = !isDifferentMonth && !isWeekend && !isPastDay && 
+                                  diasDisponibles.indexOf(dayOfMonth) !== -1;
+                
+                if (isAvailable) {
+                    isEnabled = true;
+                    dayClass += ' available';
                 }
                 
                 var dateStr = currentDate.getDate() + '/' + (currentDate.getMonth() + 1) + '/' + currentDate.getFullYear();
                 
                 if (isEnabled) {
-                    html += '<td class="date-cell ' + dayClass + '" data-date="' + dateStr + '" style="padding:5px; text-align:center; cursor:pointer; border:1px solid #eee; font-size:14px; background-color:#f0f8ff;">' + currentDate.getDate() + '</td>';
+                    html += '<td class="date-cell ' + dayClass + '" data-date="' + dateStr + '" style="padding:5px; text-align:center; cursor:pointer; border:1px solid #eee; font-size:14px; background-color:#d0f0d0;">' + currentDate.getDate() + '</td>';
                 } else {
-                    html += '<td class="' + dayClass + '" style="padding:5px; text-align:center; color:#ccc; border:1px solid #eee; font-size:14px;">' + currentDate.getDate() + '</td>';
+                    html += '<td class="' + dayClass + '" style="padding:5px; text-align:center; color:#ccc; border:1px solid #eee; font-size:14px; background-color:' + (isDifferentMonth ? '#f9f9f9' : '#f0f0f0') + ';">' + currentDate.getDate() + '</td>';
                 }
                 
                 currentDate.setDate(currentDate.getDate() + 1);
@@ -325,17 +429,86 @@
         }
         
         html += '</table>';
+        
+        // Añadir leyenda
+        html += '<div style="margin-top:10px; font-size:12px;">';
+        html += '<div style="display:inline-block; width:12px; height:12px; background-color:#d0f0d0; margin-right:5px;"></div> Días con disponibilidad';
+        html += '</div>';
+        
         return html;
     }
+
+// Función para obtener el tipo de reunión seleccionado por el usuario
+function getTipoReunion() {
+    // Intentar obtener el tipo de reunión del último mensaje enviado
+    var messagesArea = document.getElementById('bot-messages');
+    if (!messagesArea) return null;
     
-    // Añadir eventos
-    sendButton.addEventListener('click', sendMessage);
-    inputBox.addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-            sendMessage();
+    var messages = messagesArea.getElementsByClassName('bot-message');
+    if (!messages || messages.length === 0) return null;
+    
+    // Buscar en los mensajes recientes menciones a tipos de reunión
+    var tipos = ['presencial', 'videoconferencia', 'telefonica', 'telefónica'];
+    var tipoSeleccionado = null;
+    
+    // Comprobar los últimos 5 mensajes o menos
+    var numMessages = Math.min(5, messages.length);
+    for (var i = messages.length - 1; i >= messages.length - numMessages; i--) {
+        var messageText = messages[i].innerText.toLowerCase();
+        
+        for (var j = 0; j < tipos.length; j++) {
+            if (messageText.indexOf(tipos[j]) !== -1) {
+                tipoSeleccionado = tipos[j];
+                break;
+            }
         }
-    });
+        
+        if (tipoSeleccionado) break;
+    }
     
+    return tipoSeleccionado;
+}
+
+// Función para simular obtención de días disponibles
+function obtenerDiasDisponibles(mes, anio, tipoReunion) {
+    // En una implementación real, esto sería una llamada a un endpoint del servidor
+    console.log('Obteniendo días disponibles para', mes, anio, tipoReunion);
+    
+    // Simulación: Días entre semana, excluyendo aleatoriamente algunos días
+    var diasLaborables = [];
+    var diasTotales = new Date(anio, mes, 0).getDate();
+    
+    for (var dia = 1; dia <= diasTotales; dia++) {
+        var fecha = new Date(anio, mes - 1, dia);
+        var diaSemana = fecha.getDay();
+        
+        // Excluir fines de semana (0 = Domingo, 6 = Sábado)
+        if (diaSemana !== 0 && diaSemana !== 6) {
+            // Excluir días pasados
+            var hoy = new Date();
+            if (fecha >= new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate()) || 
+                (fecha.getFullYear() === hoy.getFullYear() && fecha.getMonth() === hoy.getMonth() && fecha.getDate() === hoy.getDate())) {
+                diasLaborables.push(dia);
+            }
+        }
+    }
+    
+    // Excluir aleatoriamente algunos días (simulando días sin disponibilidad)
+    var diasExcluidos = Math.floor(diasLaborables.length * 0.3); // Excluir aproximadamente 30%
+    for (var i = 0; i < diasExcluidos; i++) {
+        var indexAleatorio = Math.floor(Math.random() * diasLaborables.length);
+        diasLaborables.splice(indexAleatorio, 1);
+    }
+    
+    return diasLaborables;
+}
+
+
+
+
+
+
+
     // Funciones para añadir mensajes
     function addUserMessage(text) {
         var messageDiv = document.createElement('div');

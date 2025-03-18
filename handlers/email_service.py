@@ -120,3 +120,71 @@ Por favor, asegúrese de preparar todo lo necesario para esta cita.
     except Exception as e:
         print(f"ERROR - No se pudo enviar el correo: {str(e)}")
         return False
+
+def obtener_dias_disponibles(mes, anio, tipo_reunion):
+    """
+    Obtiene los días con disponibilidad para un mes y tipo de reunión específicos.
+    
+    Args:
+        mes: Número de mes (1-12)
+        anio: Año (ej: 2023)
+        tipo_reunion: Tipo de reunión (presencial, videoconferencia, telefonica)
+        
+    Returns:
+        Lista de números de días con disponibilidad
+    """
+    import calendar
+    import datetime
+    
+    # Obtener el número de días en el mes
+    _, num_dias = calendar.monthrange(anio, mes)
+    
+    # Lista para almacenar los días disponibles
+    dias_disponibles = []
+    
+    # Comprobar cada día del mes
+    for dia in range(1, num_dias + 1):
+        try:
+            # Crear fecha para el día
+            fecha = datetime.datetime(anio, mes, dia)
+            
+            # Saltar fines de semana
+            if fecha.weekday() >= 5:  # 5=Sábado, 6=Domingo
+                continue
+                
+            # Obtener horarios disponibles para ese día
+            horarios = obtener_horarios_disponibles(fecha, tipo_reunion)
+            
+            # Si hay horarios disponibles, añadir el día a la lista
+            if horarios:
+                dias_disponibles.append(dia)
+        except Exception as e:
+            print(f"Error al comprobar disponibilidad del día {dia}/{mes}/{anio}: {str(e)}")
+    
+    return dias_disponibles
+
+# En caso de error o para uso en tests, versión simulada
+
+def _obtener_dias_disponibles_simulados(mes, anio, tipo_reunion):
+    """Versión simulada de obtener_dias_disponibles para usar en caso de errores."""
+    import calendar
+    import datetime
+    import random
+    
+    print(f"ADVERTENCIA: Usando días disponibles simulados para {mes}/{anio} y {tipo_reunion}")
+    
+    # Obtener el número de días en el mes
+    _, num_dias = calendar.monthrange(anio, mes)
+    
+    # Determinar días laborables (lunes a viernes)
+    dias_laborables = []
+    for dia in range(1, num_dias + 1):
+        fecha = datetime.datetime(anio, mes, dia)
+        if fecha.weekday() < 5:  # 0-4 = Lunes a Viernes
+            dias_laborables.append(dia)
+    
+    # Seleccionar aleatoriamente entre 60% y 80% de los días laborables como disponibles
+    num_disponibles = int(len(dias_laborables) * random.uniform(0.6, 0.8))
+    dias_disponibles = sorted(random.sample(dias_laborables, num_disponibles))
+    
+    return dias_disponibles
