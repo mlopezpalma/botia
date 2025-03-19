@@ -57,10 +57,10 @@ def obtener_horarios_disponibles(fecha, tipo_reunion):
         fecha = datetime.datetime.strptime(fecha, "%Y-%m-%d")
     
     # Ajustar fecha para que sea solo la parte de la fecha
-    fecha = fecha.replace(hour=0, minute=0, second=0, microsecond=0)
+    fecha_dt = fecha.replace(hour=0, minute=0, second=0, microsecond=0)
     
     # Si es fin de semana, no hay horarios disponibles
-    if fecha.weekday() >= 5:  # 5=Sábado, 6=Domingo
+    if fecha_dt.weekday() >= 5:  # 5=Sábado, 6=Domingo
         return []
     
     try:
@@ -68,8 +68,8 @@ def obtener_horarios_disponibles(fecha, tipo_reunion):
         service = get_google_calendar_service()
         
         # Establecer rango de tiempo para consultar (todo el día especificado)
-        time_min = fecha.isoformat() + 'Z'
-        time_max = (fecha + datetime.timedelta(days=1)).isoformat() + 'Z'
+        time_min = fecha_dt.isoformat() + 'Z'
+        time_max = (fecha_dt + datetime.timedelta(days=1)).isoformat() + 'Z'
         
         # Obtener eventos del calendario para el día
         eventos = service.events().list(
@@ -79,9 +79,6 @@ def obtener_horarios_disponibles(fecha, tipo_reunion):
             singleEvents=True,
             orderBy='startTime'
         ).execute()
-        
-        # Procesar eventos y obtener horarios disponibles
-        # La lógica de procesamiento es la misma que en la simulación
         
         # Obtener los horarios para el tipo de reunión específico
         horarios_manana = HORARIOS_POR_TIPO[tipo_reunion]["manana"]
@@ -103,7 +100,7 @@ def obtener_horarios_disponibles(fecha, tipo_reunion):
                 # Verificar solape con cada horario disponible
                 for hora_str in horarios_completos:
                     hora, minutos = map(int, hora_str.split(':'))
-                    hora_dt = fecha.replace(hour=hora, minute=minutos)
+                    hora_dt = fecha_dt.replace(hour=hora, minute=minutos)
                     duracion_minutos = TIPOS_REUNION[tipo_reunion]["duracion_real"]
                     fin_hora_dt = hora_dt + datetime.timedelta(minutes=duracion_minutos)
                     
@@ -129,12 +126,32 @@ def obtener_horarios_disponibles(fecha, tipo_reunion):
                 elif hora in horarios_tarde and hora_fin_str <= "19:00":
                     horarios_disponibles.append(hora)
         
-        return horarios_disponibles
+        # Verificar si la fecha es hoy y excluir horarios pasados
+        es_hoy = fecha_dt.date() == datetime.datetime.now().date()
+        hora_actual = datetime.datetime.now().time()
+        
+        horarios_disponibles_filtrados = []
+        for hora in horarios_disponibles:
+            # Convertir la hora a objeto time para comparar
+            hora_partes = hora.split(':')
+            hora_obj = datetime.time(int(hora_partes[0]), int(hora_partes[1]))
+            
+            # Si es hoy, solo incluir horas futuras (con un margen de 30 minutos)
+            if not es_hoy or (
+                hora_obj > hora_actual and 
+                (hora_obj.hour > hora_actual.hour or 
+                (hora_obj.hour == hora_actual.hour and hora_obj.minute >= hora_actual.minute + 30))
+            ):
+                horarios_disponibles_filtrados.append(hora)
+        
+        return horarios_disponibles_filtrados
         
     except Exception as e:
         print(f"Error al obtener horarios de Google Calendar: {str(e)}")
         # En caso de error, devolver una respuesta simulada
         return _obtener_horarios_simulados(fecha, tipo_reunion)
+
+
 
 def encontrar_proxima_fecha_disponible(tipo_reunion):
     """
@@ -169,7 +186,7 @@ def encontrar_proxima_fecha_disponible(tipo_reunion):
 
 def agendar_en_calendario(fecha, hora, tipo_reunion, datos_cliente, tema_reunion=None):
     """
-    Agenda una cita en Google Calendar.
+    Agenda una cita en Google Calendar con colores distintos según el tipo de reunión.
     
     Args:
         fecha: Fecha en formato "YYYY-MM-DD"
@@ -199,6 +216,15 @@ def agendar_en_calendario(fecha, hora, tipo_reunion, datos_cliente, tema_reunion
         if tema_reunion:
             descripcion += f'\nTema de la consulta: {tema_reunion}'
         
+        # Asignar color según tipo de reunión
+        # Colores en Google Calendar: 1=Lavanda, 2=Melocotón, 3=Plátano, 4=Verde menta,
+        # 5=Verde, 6=Azul, 7=Gris, 8=Rojo, 9=Naranja, 10=Amarillo, 11=Verde claro
+        colores = {
+            "presencial": "11",  # Verde claro para presencial
+            "videoconferencia": "6",  # Azul para videoconferencia
+            "telefonica": "3"  # Amarillo para telefónica
+        }
+        
         # Obtener el servicio de calendario
         service = get_google_calendar_service()
         
@@ -225,6 +251,7 @@ def agendar_en_calendario(fecha, hora, tipo_reunion, datos_cliente, tema_reunion
                     {'method': 'popup', 'minutes': 30},
                 ],
             },
+            'colorId': colores.get(tipo_reunion, "1")  # Asignar color según tipo, con valor predeterminado
         }
         
         # Crear el evento en el calendario
@@ -357,6 +384,8 @@ def _crear_evento_simulado(fecha, hora, tipo_reunion, datos_cliente, tema_reunio
     }
 
 def obtener_dias_disponibles(mes, anio, tipo_reunion):
+    print(f"DEBUG - obtener_dias_disponibles llamado con mes={mes}, anio={anio}, tipo_reunion={tipo_reunion}")
+    
     """
     Obtiene los días con disponibilidad para un mes y tipo de reunión específicos.
     
@@ -382,20 +411,36 @@ def obtener_dias_disponibles(mes, anio, tipo_reunion):
         try:
             # Crear fecha para el día
             fecha = datetime.datetime(anio, mes, dia)
-            
+            print(f"DEBUG - Comprobando día {dia}/{mes}/{anio}")
+
             # Saltar fines de semana
             if fecha.weekday() >= 5:  # 5=Sábado, 6=Domingo
+                print(f"DEBUG - Día {dia}/{mes}/{anio} es fin de semana, saltando")
                 continue
                 
             # Obtener horarios disponibles para ese día
+            print(f"DEBUG - Intentando obtener horarios para {dia}/{mes}/{anio}")
             horarios = obtener_horarios_disponibles(fecha, tipo_reunion)
-            
+            print(f"DEBUG - Intentando obtener horarios para {dia}/{mes}/{anio}")
+
             # Si hay horarios disponibles, añadir el día a la lista
             if horarios:
                 dias_disponibles.append(dia)
         except Exception as e:
             print(f"Error al comprobar disponibilidad del día {dia}/{mes}/{anio}: {str(e)}")
-    
+        
+    # Al final de la función, antes de retornar:
+    print(f"DEBUG - Días disponibles encontrados: {dias_disponibles}")
+
+     # Si no hay días disponibles:
+    if not dias_disponibles:
+        print(f"DEBUG - No se encontraron días disponibles, usando simulación")
+        try:
+            return _obtener_dias_disponibles_simulados(mes, anio, tipo_reunion)
+        except Exception as e:
+            print(f"DEBUG - Error al obtener días simulados: {str(e)}")
+
+
     return dias_disponibles
 
 # En caso de error o para uso en tests, versión simulada

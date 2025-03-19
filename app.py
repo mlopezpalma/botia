@@ -148,17 +148,36 @@ def chat():
     mensaje = data.get('mensaje', '')
     user_id = data.get('user_id', 'default_user')
     
+    print(f"DEBUG - API recibió: '{mensaje}' de usuario: {user_id}")
+    
     try:
         # Verificar si es un mensaje de reseteo
         if mensaje == "reset_conversation":
             reset_conversacion(user_id, app.user_states)
             return jsonify({'respuesta': 'Conversación reiniciada.'})
         
+        # Verificar si el usuario existe, si no existe entonces inicializarlo
+        if user_id not in app.user_states:
+            print(f"DEBUG - Inicializando nuevo usuario: {user_id}")
+            reset_conversacion(user_id, app.user_states)
+        
+        # Ver el estado actual antes de procesar
+        print(f"DEBUG - Estado actual del usuario antes de procesar: {app.user_states.get(user_id, {}).get('estado', 'no definido')}")
+        
         respuesta = generar_respuesta(mensaje, user_id, app.user_states)
+        
+        # Ver el estado después de procesar
+        print(f"DEBUG - Estado después de procesar: {app.user_states.get(user_id, {}).get('estado', 'no definido')}")
+        print(f"DEBUG - Enviando respuesta: '{respuesta}'")
+        
         return jsonify({'respuesta': respuesta})
     except Exception as e:
-        print(f"ERROR: {str(e)}")
+        print(f"ERROR DETALLADO: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
         return jsonify({'respuesta': 'Lo siento, ha ocurrido un error al procesar tu mensaje.'})
+
+
 
 @app.route('/chat-widget.js')
 def widget_js():

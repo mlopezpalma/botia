@@ -15,15 +15,20 @@ class TestConversation(unittest.TestCase):
         self.user_states = {}
     
     def test_flujo_completo_cita(self):
+        print("\nDEBUG - Ejecutando test_flujo_completo_cita")
         """Prueba un flujo completo para agendar una cita."""
         user_id = "test_user"
         
         # Iniciar conversación
         respuesta = generar_respuesta("hola", user_id, self.user_states)
+        print(f"DEBUG - Respuesta a 'hola': '{respuesta}'")
+        print(f"DEBUG - Estado después de 'hola': {self.user_states[user_id]['estado']}")
         self.assertIn("Soy el asistente de citas legales", respuesta)
         
         # Seleccionar tipo de reunión
         respuesta = generar_respuesta("presencial", user_id, self.user_states)
+        print(f"DEBUG - Respuesta a 'presencial': '{respuesta}'")
+        print(f"DEBUG - Estado después de 'presencial': {self.user_states[user_id]['estado']}")
         self.assertIn("tema de la consulta legal", respuesta)
         
         # Proporcionar tema de la reunión

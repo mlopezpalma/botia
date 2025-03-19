@@ -151,7 +151,11 @@ def identificar_tipo_reunion(texto):
         
     Returns:
         Tipo de reunión identificado o None si no se identifica
+
     """
+
+
+    print(f"DEBUG - identificar_tipo_reunion recibió: '{texto}'")
     texto_original = texto
     texto = texto.lower().strip()
     
@@ -168,6 +172,7 @@ def identificar_tipo_reunion(texto):
     elif texto in ["telefonica", "telefónica", "teléfono", "telefono", "por telefono"]:
         print("DEBUG - Coincidencia exacta: telefonica")
         return "telefonica"
+    print(f"DEBUG - No se encontraron coincidencias exactas para '{texto}'")
     
     # Verificar explícitamente "por teléfono mejor" y similares
     if "por teléfono" in texto or "por telefono" in texto or "teléfono mejor" in texto or "telefono mejor" in texto:

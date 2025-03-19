@@ -114,13 +114,37 @@ def generar_respuesta(mensaje, user_id, user_states):
                    "¿Qué te gustaría hacer? [MENU:Agendar una cita|Consultar estado de mi caso]")
     
     elif estado_usuario["estado"] == "esperando_inicio":
+         # Si el usuario selecciona "Agendar una cita"
+        if mensaje_lower == "agendar una cita" or "agendar" in mensaje_lower or "cita" in mensaje_lower:
+            estado_usuario["estado"] = "esperando_tipo_reunion"
+            return MENSAJES_MENU["tipo_reunion"]
+        # Verificar si el mensaje es un tipo de reunión
+        tipo_reunion = identificar_tipo_reunion(mensaje)
+        
+        if tipo_reunion:
+            estado_usuario["tipo_reunion"] = tipo_reunion
+            estado_usuario["estado"] = "esperando_tema_reunion"
+            return "¿Cuál es el motivo o tema de la consulta legal?"
+        
+        # Verificación directa para opciones de menú
+        if mensaje_lower in ["presencial", "videoconferencia", "telefónica", "telefonica"]:
+            tipo_reunion = mensaje_lower
+            if tipo_reunion == "telefónica":
+                tipo_reunion = "telefonica"
+            
+            estado_usuario["tipo_reunion"] = tipo_reunion
+            estado_usuario["estado"] = "esperando_tema_reunion"
+            return "¿Cuál es el motivo o tema de la consulta legal?"
+            
         # Verificar si quiere consultar estado del caso
         if "estado" in mensaje_lower or "consultar" in mensaje_lower or "caso" in mensaje_lower or "expediente" in mensaje_lower:
             estado_usuario["estado"] = "esperando_opcion_consulta"
             return MENSAJES_MENU["consulta_estado"]   
+            
+        # Si no se reconoce la intención, preguntar de nuevo
+        return "Por favor, indica qué deseas hacer: agendar una cita (presencial, videoconferencia o telefónica) o consultar el estado de un caso."
 
-
-    elif estado_usuario["estado"] == "esperando_inicio" or estado_usuario["estado"] == "esperando_tipo_reunion":
+    elif estado_usuario["estado"] == "esperando_tipo_reunion":
         # Identificar tipo de reunión
         tipo_reunion = identificar_tipo_reunion(mensaje)
         
@@ -373,14 +397,11 @@ def generar_respuesta(mensaje, user_id, user_states):
                 # Si hay un solo caso, mostrar detalles
                 return _formatear_detalles_caso(casos[0])
         else:
+            estado_usuario["estado"] = "esperando_inicio"
             return "No hemos encontrado casos asociados al email proporcionado. Si crees que es un error, por favor contacta directamente con nuestras oficinas o verifica el email e inténtalo de nuevo."
-
-
-
 
     # Si no coincide con ningún estado específico, respuesta genérica
     return "Disculpa, no he entendido tu solicitud. ¿Puedes reformularla? Puedo ayudarte a agendar citas legales presenciales, por videoconferencia o telefónicas."
-
 def _verificar_datos_faltantes(datos):
     """Verifica qué datos faltan del cliente"""
     datos_faltantes = []
