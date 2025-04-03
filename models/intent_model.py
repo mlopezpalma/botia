@@ -38,6 +38,14 @@ except OSError:
         # Crear un modelo vacío como último recurso
         nlp = spacy.blank("es")
 
+# Control de nivel de depuración
+DEBUG_MODE = False  # Cambiar a True durante desarrollo, False en producción
+
+def debug_print(message):
+    """Imprime mensajes de depuración solo si el modo DEBUG está activado."""
+    if DEBUG_MODE:
+        print(message)
+
 def preprocesar_texto(texto):
     """
     Preprocesa el texto eliminando puntuación, convirtiéndolo a minúsculas
@@ -61,11 +69,11 @@ def identificar_intencion(texto):
     Returns:
         Intención identificada o "desconocido" si no se identifica ninguna
     """
-    print(f"DEBUG - spaCy identificando intención para: '{texto}'")
+    debug_print(f"DEBUG - spaCy identificando intención para: '{texto}'")
     
     # Manejar caso especial: texto vacío
     if not texto or len(texto.strip()) == 0:
-        print(f"DEBUG - Texto vacío, retornando desconocido")
+        debug_print(f"DEBUG - Texto vacío, retornando desconocido")
         return "desconocido"
         
     texto_lower = texto.lower().strip()
@@ -73,8 +81,16 @@ def identificar_intencion(texto):
     # Primero comprobar coincidencias exactas
     for intencion, ejemplos in INTENCIONES.items():
         if texto_lower in ejemplos:
-            print(f"DEBUG - Coincidencia exacta: '{intencion}'")
+            debug_print(f"DEBUG - Coincidencia exacta: '{intencion}'")
             return intencion
+    
+    # NUEVA SECCIÓN: Detectar despedida o finalización
+    palabras_despedida = ["no gracias", "adiós", "adios", "hasta luego", "terminar", 
+                         "finalizar", "cerrar", "no quiero", "no deseo", "eso es todo"]
+    
+    if any(palabra in texto_lower for palabra in palabras_despedida):
+        debug_print("DEBUG - Detectada despedida")
+        return "despedida"  # Nueva intención para manejar despedidas
     
     # Si no hay coincidencia exacta, usar spaCy
     texto_doc = nlp(texto_lower)
@@ -89,7 +105,8 @@ def identificar_intencion(texto):
         "dia_especifico": ["semana", "específico", "próxima", "mes"],
         "reunion_presencial": ["presencial", "persona", "cara a cara", "oficina"],
         "reunion_video": ["video", "videoconferencia", "virtual", "online"],
-        "reunion_telefonica": ["teléfono", "llamada", "telefonica"]
+        "reunion_telefonica": ["teléfono", "llamada", "telefonica"],
+        "consultar_estado": ["estado", "consultar", "caso", "expediente", "seguimiento"]
     }
     
     # Verificar si el texto contiene palabras clave específicas
@@ -108,7 +125,7 @@ def identificar_intencion(texto):
                     else:
                         similitud = texto_doc.similarity(ejemplo_doc) * 1.2  # Aumentar la similitud en un 20%
                     
-                    print(f"DEBUG - Similitud entre '{texto_lower}' y '{ejemplo}': {similitud}")
+                    debug_print(f"DEBUG - Similitud entre '{texto_lower}' y '{ejemplo}': {similitud}")
                     
                     if similitud > mejor_similitud:
                         mejor_similitud = similitud
@@ -128,7 +145,7 @@ def identificar_intencion(texto):
                 else:
                     similitud = texto_doc.similarity(ejemplo_doc)
                 
-                print(f"DEBUG - Similitud entre '{texto_lower}' y '{ejemplo}': {similitud}")
+                debug_print(f"DEBUG - Similitud entre '{texto_lower}' y '{ejemplo}': {similitud}")
                 
                 if similitud > mejor_similitud:
                     mejor_similitud = similitud
@@ -147,8 +164,8 @@ def identificar_intencion(texto):
     
     # Umbral de similitud
     if mejor_similitud > 0.6:
-        print(f"DEBUG - Mejor intención por similitud ({mejor_similitud}): '{mejor_intencion}'")
+        debug_print(f"DEBUG - Mejor intención por similitud ({mejor_similitud}): '{mejor_intencion}'")
         return mejor_intencion
     else:
-        print(f"DEBUG - No se encontró intención con suficiente similitud. Mejor: {mejor_intencion} ({mejor_similitud})")
+        debug_print(f"DEBUG - No se encontró intención con suficiente similitud. Mejor: {mejor_intencion} ({mejor_similitud})")
         return "desconocido"

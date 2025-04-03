@@ -20,46 +20,99 @@ class WhatsAppBot:
         
         # Comprobar si se han proporcionado las credenciales de Twilio
         self.client = None
-        if self.account_sid and self.auth_token:
-            self.client = Client(self.account_sid, self.auth_token)
+        self.enabled = False
+        
+        if all([self.account_sid, self.auth_token, self.whatsapp_number]):
+            try:
+                self.client = Client(self.account_sid, self.auth_token)
+                self.enabled = True
+                print("INFO - Integración de WhatsApp configurada correctamente")
+            except Exception as e:
+                print(f"ERROR - No se pudo inicializar el cliente de Twilio: {str(e)}")
+                self.enabled = False
+        else:
+            missing = []
+            if not self.account_sid:
+                missing.append("TWILIO_ACCOUNT_SID")
+            if not self.auth_token:
+                missing.append("TWILIO_AUTH_TOKEN")
+            if not self.whatsapp_number:
+                missing.append("TWILIO_WHATSAPP_NUMBER")
+                
+            print(f"ADVERTENCIA - Faltan credenciales de Twilio: {', '.join(missing)}. La integración con WhatsApp estará deshabilitada")
         
         # Añadir ruta para manejar mensajes de WhatsApp
         app.route('/api/whatsapp', methods=['POST'])(self.handle_whatsapp_message)
     
     def handle_whatsapp_message(self):
         """Maneja los mensajes entrantes de WhatsApp."""
+        if not self.enabled:
+            return jsonify({"error": "La integración de WhatsApp no está configurada correctamente"}), 503
+            
         # Extraer el cuerpo del mensaje y el número de teléfono
         incoming_msg = request.values.get('Body', '').strip()
         sender = request.values.get('From', '').strip()
         
         print(f"DEBUG - WhatsApp: Mensaje recibido de {sender}: '{incoming_msg}'")
         
+        # Verificar mensajes vacíos
+        if not incoming_msg:
+            resp = MessagingResponse()
+            resp.message("No se recibió ningún mensaje. Por favor, intenta de nuevo.")
+            return str(resp)
+        
         # Generar una ID de usuario basada en el número de WhatsApp (sin el prefijo 'whatsapp:')
         user_id = f"whatsapp_{sender.replace('whatsapp:', '')}"
         
         try:
+            # Detectar mensajes de reinicio o despedida
+            incoming_msg_lower = incoming_msg.lower().strip()
+            if incoming_msg_lower in ["reiniciar", "comenzar", "reset", "inicio", "empezar", "start"]:
+                # Reiniciar la conversación
+                try:
+                    if user_id in self.user_states:
+                        del self.user_states[user_id]
+                except Exception as e:
+                    print(f"ERROR - WhatsApp: Error al eliminar estado de usuario: {str(e)}")
+                
+                try:
+                    from handlers.conversation import reset_conversacion
+                    reset_conversacion(user_id, self.user_states)
+                    mensaje_respuesta = "Conversación reiniciada. ¡Hola! Soy el asistente de citas legales. ¿En qué puedo ayudarte?"
+                except Exception as e:
+                    print(f"ERROR - WhatsApp: Error al resetear conversación: {str(e)}")
+                    mensaje_respuesta = "Conversación reiniciada. ¿En qué puedo ayudarte?"
+                
+                # Enviar respuesta
+                self._send_whatsapp_message_safe(sender, mensaje_respuesta)
+                
+                # Responder usando TwiML
+                resp = MessagingResponse()
+                resp.message(mensaje_respuesta)
+                return str(resp)
+            
             # Procesar el mensaje utilizando la lógica de conversación existente
             respuesta = generar_respuesta(incoming_msg, user_id, self.user_states)
             
             # Eliminar cualquier formato especial del mensaje (como [MENU:...])
             respuesta_limpia = self._limpiar_mensaje(respuesta)
             
-            # Responder utilizando Twilio (Función preferida para producción)
-            if self.client:
-                self._send_whatsapp_message(sender, respuesta_limpia)
-                print(f"DEBUG - WhatsApp: Respuesta enviada a {sender} usando Twilio")
+            # Responder utilizando Twilio
+            self._send_whatsapp_message_safe(sender, respuesta_limpia)
             
-            # Responder utilizando TwiML (Alternativa si se utiliza webhook de Twilio)
+            # Responder utilizando TwiML (para compatibilidad con webhook de Twilio)
             resp = MessagingResponse()
-            resp.message(respuesta_limpia)
+            resp.message(respuesta_limpia[:1600]) # WhatsApp tiene un límite de ~1600 caracteres
             
             return str(resp)
         except Exception as e:
             print(f"ERROR - WhatsApp: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
             
             # Responder con un mensaje de error
             resp = MessagingResponse()
-            resp.message("Lo siento, ha ocurrido un error al procesar tu mensaje. Por favor, inténtalo de nuevo.")
+            resp.message("Lo siento, ha ocurrido un error al procesar tu mensaje. Por favor, intenta de nuevo o escribe 'reiniciar' para comenzar una nueva conversación.")
             
             return str(resp)
     
@@ -78,21 +131,66 @@ class WhatsAppBot:
         
         return mensaje
     
-    def _send_whatsapp_message(self, to, body):
-        """Envía un mensaje de WhatsApp utilizando Twilio."""
-        if not self.client:
+    def _send_whatsapp_message_safe(self, to, body):
+        """Envía un mensaje de WhatsApp utilizando Twilio, dividiendo mensajes largos si es necesario."""
+        if not self.enabled or not self.client:
             print("ERROR - WhatsApp: Cliente de Twilio no inicializado")
             return False
         
         try:
-            message = self.client.messages.create(
-                from_=f'whatsapp:{self.whatsapp_number}',
-                body=body,
-                to=to
-            )
-            print(f"DEBUG - WhatsApp: Mensaje enviado con SID: {message.sid}")
-            return True
+            # Dividir mensajes largos (límite de WhatsApp ~1600 caracteres)
+            max_length = 1600
+            messages_sent = 0
+            
+            if len(body) <= max_length:
+                # Mensaje único
+                message = self.client.messages.create(
+                    from_=f'whatsapp:{self.whatsapp_number}',
+                    body=body,
+                    to=to
+                )
+                print(f"DEBUG - WhatsApp: Mensaje enviado con SID: {message.sid}")
+                messages_sent = 1
+            else:
+                # Dividir el mensaje en partes
+                parts = []
+                
+                # Intentar dividir por párrafos para mantener coherencia
+                paragraphs = body.split('\n\n')
+                current_part = ""
+                
+                for p in paragraphs:
+                    # Si añadir este párrafo excede el límite, enviar lo que tenemos y empezar nuevo
+                    if len(current_part) + len(p) + 2 > max_length:
+                        if current_part:
+                            parts.append(current_part)
+                            current_part = p
+                        else:
+                            # El párrafo es demasiado largo por sí mismo, dividirlo
+                            for i in range(0, len(p), max_length):
+                                parts.append(p[i:i+max_length])
+                    else:
+                        if current_part:
+                            current_part += "\n\n" + p
+                        else:
+                            current_part = p
+                
+                # Añadir la última parte si queda algo
+                if current_part:
+                    parts.append(current_part)
+                
+                # Enviar cada parte
+                for i, part in enumerate(parts):
+                    prefix = f"Parte {i+1}/{len(parts)}: " if len(parts) > 1 else ""
+                    message = self.client.messages.create(
+                        from_=f'whatsapp:{self.whatsapp_number}',
+                        body=prefix + part,
+                        to=to
+                    )
+                    print(f"DEBUG - WhatsApp: Parte {i+1}/{len(parts)} enviada con SID: {message.sid}")
+                    messages_sent += 1
+            
+            return messages_sent > 0
         except Exception as e:
             print(f"ERROR - WhatsApp: No se pudo enviar el mensaje: {str(e)}")
             return False
-

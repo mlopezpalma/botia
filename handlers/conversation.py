@@ -26,6 +26,12 @@ def reset_conversacion(user_id, user_states):
         user_id: ID del usuario
         user_states: Diccionario de estados de usuario
     """
+    # Eliminar completamente el estado anterior
+    if user_id in user_states:
+        del user_states[user_id]
+
+    # Crear un nuevo estado limpio
+    
     user_states[user_id] = {
         "estado": "inicial",
         "tipo_reunion": None,
@@ -51,8 +57,28 @@ def generar_respuesta(mensaje, user_id, user_states):
     estado_usuario = user_states[user_id]
     print(f"DEBUG - estado actual del usuario: {estado_usuario['estado']}")
     
-    # Procesamiento directo para respuestas simples según el estado
+    # NUEVO: Detectar despedida o finalización
     mensaje_lower = mensaje.lower().strip()
+    palabras_despedida = ["no gracias", "adiós", "adios", "hasta luego", "terminar", 
+                         "finalizar", "cerrar", "no quiero", "no deseo", "eso es todo",
+                         "nada más", "no necesito", "gracias", "ya está", "ya terminé"]
+    
+    if any(palabra in mensaje_lower for palabra in palabras_despedida) or mensaje_lower == "no":
+        # Si estamos en un estado donde "no" puede ser una respuesta normal, verificar contexto
+        if estado_usuario["estado"] == "esperando_confirmacion":
+            # Aquí "no" significa cambiar detalles, no despedida
+            if mensaje_lower == "no" or "cambiar" in mensaje_lower:
+                pass  # Continuar con el flujo normal
+            else:
+                # Es una despedida
+                reset_conversacion(user_id, user_states)
+                return "Gracias por usar nuestro servicio de asistencia para citas legales. ¡Hasta pronto!"
+        else:
+            # En cualquier otro estado, es una despedida
+            reset_conversacion(user_id, user_states)
+            return "Gracias por usar nuestro servicio de asistencia para citas legales. ¡Hasta pronto!"
+    
+    # Procesamiento directo para respuestas simples según el estado
     
     # Buscar datos personales en cualquier mensaje
     datos_identificados = identificar_datos_personales(mensaje)
@@ -88,7 +114,6 @@ def generar_respuesta(mensaje, user_id, user_states):
                     if not estado_usuario["datos"]["email"] and cliente.get("email"):
                         estado_usuario["datos"]["email"] = cliente["email"]
                         print(f"DEBUG - recuperado email: {cliente['email']} de cliente existente")
-
 
     # Manejo de estados específicos
     if estado_usuario["estado"] == "inicial":
@@ -215,13 +240,17 @@ def generar_respuesta(mensaje, user_id, user_states):
         # Opción: Ver calendario
         elif intencion == "ver_calendario" or "calendario" in mensaje_lower or "3" == mensaje.strip() or mensaje_lower == "ver calendario":
             estado_usuario["estado"] = "mostrando_calendario"
-            return ("Para ver el calendario completo, haz clic en 'Ver Calendario' abajo. [Indicador pequeño]\n\n"
-                    "Mientras tanto, puedes indicarme directamente qué día te gustaría agendar tu cita (ej: mañana, próximo lunes, etc.)")
+            return ("Para ver el calendario completo, se mostrará un calendario visual abajo donde podrás seleccionar una fecha disponible. [Indicador pequeño]\n\n"
+                    "También puedes indicarme directamente qué día te gustaría agendar tu cita (ej: mañana, próximo lunes, etc.)")
         
         # Si no se reconoce la preferencia, preguntar de nuevo
         return "Por favor, indica cómo te gustaría agendar tu cita: Lo antes posible, En un día específico, o Ver calendario."
     
     elif estado_usuario["estado"] == "esperando_fecha" or estado_usuario["estado"] == "mostrando_calendario":
+        # Si el mensaje es exactamente "Ver calendario" (podría ser una confusión del usuario)
+        if mensaje_lower == "ver calendario":
+            return ("El calendario ya está visible abajo. Por favor, selecciona una fecha haciendo clic en uno de los días disponibles (en verde), o escribe una fecha específica como 'mañana' o 'próximo lunes'.")
+        
         fecha = identificar_fecha(mensaje)
         
         if fecha:
@@ -241,7 +270,7 @@ def generar_respuesta(mensaje, user_id, user_states):
             else:
                 return f"Lo siento, no hay horarios disponibles para esa fecha con una reunión {estado_usuario['tipo_reunion']}. ¿Te gustaría elegir otra fecha?"
         else:
-            return "No he podido identificar la fecha. Por favor, indica una fecha específica como 'mañana', 'próximo lunes', etc."
+            return "No he podido identificar la fecha. Por favor, selecciona un día directamente en el calendario que se muestra abajo, o indica una fecha específica como 'mañana', 'próximo lunes', etc."
     
     elif estado_usuario["estado"] == "esperando_hora":
         # Verificar si el mensaje es uno de los horarios disponibles
@@ -361,27 +390,42 @@ def generar_respuesta(mensaje, user_id, user_states):
         else:
             return "No he entendido tu elección. " + MENSAJES_MENU["consulta_estado"]
             
-    elif estado_usuario["estado"] == "esperando_numero_expediente":
-        # Buscar caso por número de expediente
-        numero_expediente = mensaje.strip().upper()
-        resultado = _buscar_caso_por_numero(numero_expediente)
-        
-        if resultado:
-            estado_usuario["consulta_caso"]["numero_expediente"] = numero_expediente
-            estado_usuario["consulta_caso"]["caso_encontrado"] = True
-            
-            # Mostrar detalles del caso
-            return _formatear_detalles_caso(resultado)
-        else:
-            return "No he podido encontrar ningún caso con el número de expediente proporcionado. Por favor, verifica el número e inténtalo de nuevo, o elige otra opción. " + MENSAJES_MENU["consulta_estado"]
-            
     elif estado_usuario["estado"] == "esperando_email_cliente":
         # Buscar casos por email del cliente
         email = mensaje.strip().lower()
-        casos = _buscar_casos_por_email(email)
         
-        if casos:
+        # Comprobar si el email existe en la base de datos de casos
+        email_existe = False
+        for caso in casos_db.values():
+            if caso["cliente_email"].lower() == email.lower():
+                email_existe = True
+                break
+        
+        if email_existe:
+            # Generar un código de verificación
+            import random
+            codigo_verificacion = ''.join(random.choices('0123456789', k=6))
+            
+            # Almacenar el código y el email para verificación posterior
             estado_usuario["consulta_caso"]["email_cliente"] = email
+            estado_usuario["consulta_caso"]["codigo_verificacion"] = codigo_verificacion
+            estado_usuario["estado"] = "esperando_codigo_verificacion"
+            
+            # En un entorno real, enviaríamos el código por email
+            # Para fines de prueba, mostramos el código en el mensaje
+            return (f"Por seguridad, hemos enviado un código de verificación de 6 dígitos " +
+                   f"a tu email {email}. Por favor, introduce ese código para acceder a " +
+                   f"la información de tus casos.\n\n" +
+                   f"(SOLO PARA PRUEBAS: Tu código es {codigo_verificacion})")
+        else:
+            estado_usuario["estado"] = "esperando_inicio"
+            return "No hemos encontrado casos asociados al email proporcionado. Si crees que es un error, por favor contacta directamente con nuestras oficinas o verifica el email e inténtalo de nuevo."
+            
+    elif estado_usuario["estado"] == "esperando_codigo_verificacion":
+        # Verificar el código introducido
+        if mensaje.strip() == estado_usuario["consulta_caso"]["codigo_verificacion"]:
+            email = estado_usuario["consulta_caso"]["email_cliente"]
+            casos = _buscar_casos_por_email(email)
             estado_usuario["consulta_caso"]["caso_encontrado"] = True
             
             # Si hay varios casos, mostrar listado
@@ -397,11 +441,25 @@ def generar_respuesta(mensaje, user_id, user_states):
                 # Si hay un solo caso, mostrar detalles
                 return _formatear_detalles_caso(casos[0])
         else:
-            estado_usuario["estado"] = "esperando_inicio"
-            return "No hemos encontrado casos asociados al email proporcionado. Si crees que es un error, por favor contacta directamente con nuestras oficinas o verifica el email e inténtalo de nuevo."
+            return "El código introducido no es correcto. Por favor, verifica e inténtalo de nuevo, o escribe 'cancelar' para volver al menú principal."
+            
+    elif estado_usuario["estado"] == "esperando_numero_expediente":
+        # Buscar caso por número de expediente
+        numero_expediente = mensaje.strip().upper()
+        resultado = _buscar_caso_por_numero(numero_expediente)
+        
+        if resultado:
+            estado_usuario["consulta_caso"]["numero_expediente"] = numero_expediente
+            estado_usuario["consulta_caso"]["caso_encontrado"] = True
+            
+            # Mostrar detalles del caso
+            return _formatear_detalles_caso(resultado)
+        else:
+            return "No he podido encontrar ningún caso con el número de expediente proporcionado. Por favor, verifica el número e inténtalo de nuevo, o elige otra opción. " + MENSAJES_MENU["consulta_estado"]
 
     # Si no coincide con ningún estado específico, respuesta genérica
     return "Disculpa, no he entendido tu solicitud. ¿Puedes reformularla? Puedo ayudarte a agendar citas legales presenciales, por videoconferencia o telefónicas."
+
 def _verificar_datos_faltantes(datos):
     """Verifica qué datos faltan del cliente"""
     datos_faltantes = []
@@ -556,20 +614,7 @@ def _buscar_cliente_por_email(email):
     return None
 
 # 2. Añadir una función para buscar clientes por teléfono
-def _buscar_cliente_por_telefono(telefono):
-    """
-    Busca si un cliente existe en la base de datos por su teléfono.
-    
-    Args:
-        telefono: Número de teléfono del cliente a buscar
-        
-    Returns:
-        Diccionario con los datos del cliente si existe, None en caso contrario
-    """
-    for email, cliente in clientes_db.items():
-        if cliente.get("telefono") == telefono:
-            return cliente
-    return None
+
 
 def _buscar_cliente_por_telefono(telefono):
     """

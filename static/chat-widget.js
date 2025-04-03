@@ -30,11 +30,26 @@
     chatButton.style.cursor = 'pointer';
     chatButton.style.zIndex = '999';
     chatButton.style.display = 'flex';
+    chatButton.style.flexDirection = 'column'; // Cambiar a columna para añadir texto
     chatButton.style.justifyContent = 'center';
     chatButton.style.alignItems = 'center';
+    chatButton.title = "Haz clic para abrir el asistente de citas legales"; // Añadir tooltip
     
     // Ícono del botón
-    chatButton.innerHTML = '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>';
+    var buttonIcon = document.createElement('div');
+    buttonIcon.innerHTML = '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>';
+    
+    // Texto descriptivo para el botón
+    var buttonText = document.createElement('div');
+    buttonText.textContent = "Asistente";
+    buttonText.style.color = "white";
+    buttonText.style.fontSize = "10px";
+    buttonText.style.marginTop = "3px";
+    buttonText.style.textAlign = "center";
+    
+    // Añadir ícono y texto al botón
+    chatButton.appendChild(buttonIcon);
+    chatButton.appendChild(buttonText);
     
     // Cabecera
     var header = document.createElement('div');
@@ -95,13 +110,15 @@
     calendarButton.id = 'calendar-button';
     calendarButton.textContent = 'Ver Calendario';
     calendarButton.style.display = 'none';
-    calendarButton.style.padding = '8px 15px';
+    calendarButton.style.padding = '10px 15px';
     calendarButton.style.backgroundColor = '#52c41a';
     calendarButton.style.color = 'white';
     calendarButton.style.border = 'none';
     calendarButton.style.borderRadius = '4px';
-    calendarButton.style.marginTop = '10px';
+    calendarButton.style.margin = '10px auto'; // Centrado
+    calendarButton.style.width = '80%'; // Mayor ancho
     calendarButton.style.cursor = 'pointer';
+    calendarButton.style.fontWeight = 'bold'; // Negrita
     
     var calendarDiv = document.createElement('div');
     calendarDiv.id = 'chat-calendar';
@@ -164,6 +181,9 @@
         messageBubble.style.borderRadius = '15px';
         messageBubble.style.boxShadow = '0 1px 2px rgba(0,0,0,0.1)';
         
+        // Detectar si se debe mostrar el calendario
+        var showCalendar = text.includes('[Indicador pequeño]');
+        
         // Eliminar indicadores especiales
         text = text.replace('[Indicador pequeño]', '');
         
@@ -209,13 +229,66 @@
         
         messagesArea.appendChild(messageDiv);
         messagesArea.scrollTop = messagesArea.scrollHeight;
+
+        if (text.startsWith("Gracias por usar nuestro servicio") || 
+        text.includes("¡Hasta pronto!") || 
+        text.includes("Conversación finalizada")) {
+        // Esperar 3 segundos y cerrar el chat
+        setTimeout(function() {
+            closeChat();
+        }, 3000);
+    }
         
-        // Mostrar el botón de calendario si la respuesta lo menciona
-        if (text.includes('[Indicador pequeño]')) {
-            calendarButton.style.display = 'inline-block';
+        // Mostrar el botón de calendario si se debe
+        if (showCalendar) {
+            calendarButton.style.display = 'block';
+            // Mostrar automáticamente el calendario
+            setTimeout(function() {
+                showCalendarView();
+            }, 500);
         } else {
             calendarButton.style.display = 'none';
+            calendarDiv.style.display = 'none';
         }
+    }
+    
+    // Función para mostrar el calendario
+    function showCalendarView() {
+        calendarDiv.innerHTML = 'Cargando calendario...';
+        calendarDiv.style.display = 'block';
+        
+        setTimeout(function() {
+            var fechaActual = new Date();
+            var mes = fechaActual.getMonth();
+            var anio = fechaActual.getFullYear();
+            var tipo_reunion = 'presencial'; // Por defecto, se puede mejorar obteniendo del estado
+            
+            // Intentar obtener el tipo de reunión del último mensaje del bot
+            var botMessages = messagesArea.querySelectorAll('div[style*="text-align: left"]');
+            if (botMessages.length > 0) {
+                var lastBotMessage = botMessages[botMessages.length - 1].textContent;
+                if (lastBotMessage.includes("presencial")) {
+                    tipo_reunion = "presencial";
+                } else if (lastBotMessage.includes("videoconferencia")) {
+                    tipo_reunion = "videoconferencia";
+                } else if (lastBotMessage.includes("telefonica") || lastBotMessage.includes("telefónica")) {
+                    tipo_reunion = "telefonica";
+                }
+            }
+            
+            calendarDiv.innerHTML = generateCalendar(fechaActual, tipo_reunion);
+            
+            // Añadir eventos a las fechas
+            var dateCells = calendarDiv.querySelectorAll('.date-cell');
+            dateCells.forEach(function(cell) {
+                cell.addEventListener('click', function() {
+                    var date = this.getAttribute('data-date');
+                    inputBox.value = 'Quiero una cita el ' + date;
+                    sendUserMessage(inputBox.value);
+                    calendarDiv.style.display = 'none';
+                });
+            });
+        }, 500);
     }
     
     // Función para enviar mensajes
@@ -306,35 +379,35 @@
     // Evento para el botón de calendario
     calendarButton.onclick = function() {
         if (calendarDiv.style.display === 'none') {
-            calendarDiv.innerHTML = 'Cargando calendario...';
-            calendarDiv.style.display = 'block';
-            
-            // Simulación de visualización de calendario
-            setTimeout(function() {
-                var fechaActual = new Date();
-                var mes = fechaActual.getMonth();
-                var anio = fechaActual.getFullYear();
-                var tipo_reunion = 'presencial'; // Por defecto
-                
-                calendarDiv.innerHTML = generateCalendar(fechaActual, tipo_reunion);
-                
-                // Añadir eventos a las fechas
-                var dateCells = calendarDiv.querySelectorAll('.date-cell');
-                dateCells.forEach(function(cell) {
-                    cell.addEventListener('click', function() {
-                        var date = this.getAttribute('data-date');
-                        inputBox.value = 'Quiero una cita el ' + date;
-                        sendUserMessage(inputBox.value);
-                        calendarDiv.style.display = 'none';
-                    });
-                });
-            }, 500);
+            showCalendarView();
         } else {
             calendarDiv.style.display = 'none';
         }
     };
     
-    // Función para generar el calendario
+    function closeChat() {
+        // Ocultar el chat y mostrar el botón
+        chatDiv.style.display = 'none';
+        chatButton.style.display = 'flex';
+        
+        // Limpiar los mensajes
+        messagesArea.innerHTML = '';
+        
+        // Reiniciar el estado en el servidor
+        fetch('/api/bot', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                mensaje: "reset_conversation",
+                user_id: userId
+            })
+        });
+    }
+
+
+    // Función para generar el calendario (mejorada)
     function generateCalendar(date, tipo_reunion) {
         var year = date.getFullYear();
         var month = date.getMonth();
@@ -418,9 +491,15 @@
         
         html += '</table>';
         
-        // Añadir leyenda
-        html += '<div style="margin-top:10px; font-size:12px;">';
-        html += '<div style="display:inline-block; width:12px; height:12px; background-color:#d0f0d0; margin-right:5px;"></div> Días con disponibilidad';
+        // Añadir leyenda con mejor formato
+        html += '<div style="margin-top:15px; font-size:12px; background-color:#f5f5f5; padding:8px; border-radius:4px;">';
+        html += '<div style="display:flex; align-items:center; margin-bottom:5px;"><div style="display:inline-block; width:12px; height:12px; background-color:#d0f0d0; margin-right:5px; border:1px solid #aaa;"></div> Días con disponibilidad</div>';
+        html += '<div style="display:flex; align-items:center;"><div style="display:inline-block; width:12px; height:12px; background-color:#f0f0f0; margin-right:5px; border:1px solid #aaa;"></div> Días sin disponibilidad</div>';
+        html += '</div>';
+        
+        // Añadir instrucciones claras
+        html += '<div style="margin-top:10px; text-align:center; font-size:13px; color:#555; padding:8px; background-color:#e6f7ff; border-radius:4px;">';
+        html += 'Haz clic en un día disponible (verde) para ver horarios';
         html += '</div>';
         
         return html;

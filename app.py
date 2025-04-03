@@ -2,6 +2,22 @@ from flask import Flask, request, jsonify, send_from_directory
 import os
 from handlers.conversation import generar_respuesta, reset_conversacion
 
+# Al inicio de app.py
+from dotenv import load_dotenv
+import os
+
+# Cargar variables de entorno desde .env
+load_dotenv()
+
+# Verificar que las credenciales se cargaron correctamente
+twilio_sid = os.environ.get('TWILIO_ACCOUNT_SID')
+if twilio_sid:
+    print("Credenciales de Twilio cargadas correctamente")
+else:
+    print("ADVERTENCIA: Faltan credenciales de Twilio")
+
+
+
 app = Flask(__name__)
 
 # Inicializar estado de usuarios
@@ -153,6 +169,12 @@ def chat():
     try:
         # Verificar si es un mensaje de reseteo
         if mensaje == "reset_conversation":
+            # Asegurar un reinicio completo eliminando la entrada existente
+            try:
+                if user_id in app.user_states:
+                    del app.user_states[user_id]
+            except:
+                pass
             reset_conversacion(user_id, app.user_states)
             return jsonify({'respuesta': 'Conversación reiniciada.'})
         
@@ -164,6 +186,16 @@ def chat():
         # Ver el estado actual antes de procesar
         print(f"DEBUG - Estado actual del usuario antes de procesar: {app.user_states.get(user_id, {}).get('estado', 'no definido')}")
         
+        # Detectar despedidas o cierres de conversación
+        mensaje_lower = mensaje.lower().strip()
+        palabras_despedida = ["no gracias", "adiós", "adios", "hasta luego", "terminar", 
+                            "finalizar", "cerrar", "no quiero", "no deseo", "eso es todo"]
+        
+        if any(palabra in mensaje_lower for palabra in palabras_despedida):
+            reset_conversacion(user_id, app.user_states)
+            return jsonify({'respuesta': 'Gracias por usar nuestro servicio de asistencia para citas legales. ¡Hasta pronto!'})
+        
+        # Procesar la respuesta normalmente
         respuesta = generar_respuesta(mensaje, user_id, app.user_states)
         
         # Ver el estado después de procesar
@@ -175,7 +207,16 @@ def chat():
         print(f"ERROR DETALLADO: {str(e)}")
         import traceback
         print(traceback.format_exc())
-        return jsonify({'respuesta': 'Lo siento, ha ocurrido un error al procesar tu mensaje.'})
+        
+        # Intentar reiniciar la conversación en caso de error
+        try:
+            reset_conversacion(user_id, app.user_states)
+        except:
+            # Si falla el reinicio, al menos asegurarse de que el usuario exista
+            if user_id not in app.user_states:
+                app.user_states[user_id] = {}
+        
+        return jsonify({'respuesta': 'Lo siento, ha ocurrido un error al procesar tu mensaje. He reiniciado la conversación para evitar problemas futuros. ¿En qué puedo ayudarte?'})
 
 
 
@@ -193,4 +234,3 @@ whatsapp_bot = WhatsAppBot(app)
 
 if __name__ == '__main__':
     app.run(debug=True)
-
