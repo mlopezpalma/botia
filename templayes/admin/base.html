@@ -1,0 +1,880 @@
+<!-- templates/admin/base.html -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Panel de Administración{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    {% block extra_css %}{% endblock %}
+    <style>
+        .sidebar {
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            z-index: 100;
+            padding: 48px 0 0;
+            box-shadow: inset -1px 0 0 rgba(0, 0, 0, .1);
+            background-color: #212529;
+        }
+        
+        .sidebar-sticky {
+            position: relative;
+            top: 0;
+            height: calc(100vh - 48px);
+            padding-top: 0.5rem;
+            overflow-x: hidden;
+            overflow-y: auto;
+        }
+        
+        .sidebar .nav-link {
+            color: #fff;
+            padding: 0.5rem 1rem;
+        }
+        
+        .sidebar .nav-link:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+        
+        .sidebar .nav-link.active {
+            background-color: rgba(255, 255, 255, 0.2);
+        }
+        
+        .sidebar-heading {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            color: #adb5bd;
+            padding: 0.5rem 1rem;
+            margin-bottom: 0;
+        }
+        
+        .main-content {
+            margin-left: 220px;
+            padding: 48px 20px 20px;
+        }
+        
+        .navbar {
+            padding: 0.5rem 1rem;
+            position: fixed;
+            top: 0;
+            right: 0;
+            left: 0;
+            z-index: 1030;
+        }
+    </style>
+</head>
+<body>
+    {% if session.get('admin_logged_in') %}
+    <nav class="navbar navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="{{ url_for('admin.dashboard') }}">BotIA - Panel de Administración</a>
+            <ul class="navbar-nav ms-auto">
+                <li class="nav-item">
+                    <a class="nav-link" href="{{ url_for('admin.logout') }}">Cerrar sesión</a>
+                </li>
+            </ul>
+        </div>
+    </nav>
+
+    <div class="container-fluid">
+        <div class="row">
+            <nav id="sidebar" class="col-md-3 col-lg-2 d-md-block sidebar">
+                <div class="position-sticky sidebar-sticky">
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'admin.dashboard' %}active{% endif %}" href="{{ url_for('admin.dashboard') }}">
+                                <i class="fas fa-tachometer-alt me-2"></i>Dashboard
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if 'clientes' in request.endpoint %}active{% endif %}" href="{{ url_for('admin.clientes') }}">
+                                <i class="fas fa-users me-2"></i>Clientes
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if 'proyectos' in request.endpoint %}active{% endif %}" href="{{ url_for('admin.proyectos') }}">
+                                <i class="fas fa-folder me-2"></i>Proyectos
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if 'citas' in request.endpoint %}active{% endif %}" href="{{ url_for('admin.citas') }}">
+                                <i class="fas fa-calendar-check me-2"></i>Citas
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'admin.calendario' %}active{% endif %}" href="{{ url_for('admin.calendario') }}">
+                                <i class="fas fa-calendar me-2"></i>Calendario
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </nav>
+
+            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4 main-content">
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="alert alert-{{ category }} alert-dismissible fade show mt-3" role="alert">
+                                {{ message }}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+
+                {% block content %}{% endblock %}
+            </main>
+        </div>
+    </div>
+    {% else %}
+    <div class="container">
+        {% block auth_content %}{% endblock %}
+    </div>
+    {% endif %}
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>
+
+<!-- templates/admin/login.html -->
+{% extends "admin/base.html" %}
+
+{% block title %}Iniciar Sesión | Panel de Administración{% endblock %}
+
+{% block auth_content %}
+<div class="row justify-content-center mt-5">
+    <div class="col-md-6 col-lg-4">
+        <div class="card shadow">
+            <div class="card-header bg-dark text-white">
+                <h4 class="m-0">Iniciar Sesión</h4>
+            </div>
+            <div class="card-body">
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                                {{ message }}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+
+                <form method="post">
+                    <div class="mb-3">
+                        <label for="username" class="form-label">Usuario</label>
+                        <input type="text" class="form-control" id="username" name="username" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="password" class="form-label">Contraseña</label>
+                        <input type="password" class="form-control" id="password" name="password" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">Iniciar Sesión</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+<!-- templates/admin/dashboard.html -->
+{% extends "admin/base.html" %}
+
+{% block title %}Dashboard | Panel de Administración{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Dashboard</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <a href="{{ url_for('admin.nuevo_cliente') }}" class="btn btn-sm btn-outline-primary">
+                <i class="fas fa-user-plus"></i> Nuevo Cliente
+            </a>
+            <a href="{{ url_for('admin.nueva_cita') }}" class="btn btn-sm btn-outline-primary">
+                <i class="fas fa-calendar-plus"></i> Nueva Cita
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-3">
+        <div class="card mb-4 shadow-sm">
+            <div class="card-body text-center">
+                <h5 class="card-title">Clientes</h5>
+                <p class="display-4">{{ stats.total_clientes }}</p>
+                <a href="{{ url_for('admin.clientes') }}" class="btn btn-sm btn-outline-primary">Ver todos</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card mb-4 shadow-sm">
+            <div class="card-body text-center">
+                <h5 class="card-title">Citas próximas</h5>
+                <p class="display-4">{{ stats.citas_proximas }}</p>
+                <a href="{{ url_for('admin.citas') }}" class="btn btn-sm btn-outline-primary">Ver todas</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card mb-4 shadow-sm">
+            <div class="card-body text-center">
+                <h5 class="card-title">Eventos críticos</h5>
+                <p class="display-4">{{ stats.eventos_proximos }}</p>
+                <a href="{{ url_for('admin.calendario') }}" class="btn btn-sm btn-outline-primary">Ver calendario</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card mb-4 shadow-sm">
+            <div class="card-body text-center">
+                <h5 class="card-title">Proyectos activos</h5>
+                <p class="display-4">{{ stats.proyectos_activos }}</p>
+                <a href="{{ url_for('admin.proyectos') }}" class="btn btn-sm btn-outline-primary">Ver todos</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card mb-4 shadow-sm">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Últimos clientes</h5>
+                <a href="{{ url_for('admin.clientes') }}" class="btn btn-sm btn-outline-primary">Ver todos</a>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped table-sm">
+                        <thead>
+                            <tr>
+                                <th>Nombre</th>
+                                <th>Email</th>
+                                <th>Teléfono</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for cliente in ultimos_clientes %}
+                            <tr>
+                                <td>{{ cliente.nombre }}</td>
+                                <td>{{ cliente.email }}</td>
+                                <td>{{ cliente.telefono }}</td>
+                                <td>
+                                    <a href="{{ url_for('admin.ver_cliente', cliente_id=cliente.id) }}" class="btn btn-sm btn-outline-primary">
+                                        <i class="fas fa-eye"></i>
+                                    </a>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="4" class="text-center">No hay clientes registrados</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card mb-4 shadow-sm">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Próximos eventos</h5>
+                <a href="{{ url_for('admin.calendario') }}" class="btn btn-sm btn-outline-primary">Ver calendario</a>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped table-sm">
+                        <thead>
+                            <tr>
+                                <th>Fecha</th>
+                                <th>Título</th>
+                                <th>Tipo</th>
+                                <th>Cliente</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for evento in proximos_eventos %}
+                            <tr>
+                                <td>{{ evento.start.split('T')[0] }}</td>
+                                <td>{{ evento.title }}</td>
+                                <td>
+                                    {% if evento.type == 'appointment' %}
+                                    <span class="badge bg-primary">Cita</span>
+                                    {% else %}
+                                    <span class="badge bg-danger">Evento crítico</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ evento.client.name }}</td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="4" class="text-center">No hay eventos próximos</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+<!-- templates/admin/cliente_form.html -->
+{% extends "admin/base.html" %}
+
+{% block title %}Nuevo Cliente | Panel de Administración{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Nuevo Cliente</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <a href="{{ url_for('admin.clientes') }}" class="btn btn-sm btn-outline-secondary">
+            <i class="fas fa-arrow-left"></i> Volver a clientes
+        </a>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <form method="post">
+                    <div class="mb-3">
+                        <label for="nombre" class="form-label">Nombre completo *</label>
+                        <input type="text" class="form-control" id="nombre" name="nombre" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="email" class="form-label">Email *</label>
+                        <input type="email" class="form-control" id="email" name="email" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="telefono" class="form-label">Teléfono</label>
+                        <input type="tel" class="form-control" id="telefono" name="telefono">
+                    </div>
+                    <div class="mb-3">
+                        <label for="notas" class="form-label">Notas</label>
+                        <textarea class="form-control" id="notas" name="notas" rows="3"></textarea>
+                    </div>
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary">Guardar Cliente</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card shadow-sm">
+            <div class="card-header bg-light">
+                <h5 class="card-title mb-0">Información</h5>
+            </div>
+            <div class="card-body">
+                <p>Completa el formulario con los datos del cliente.</p>
+                <p>Los campos marcados con * son obligatorios.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+<!-- templates/admin/clientes.html -->
+{% extends "admin/base.html" %}
+
+{% block title %}Clientes | Panel de Administración{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Clientes</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <a href="{{ url_for('admin.nuevo_cliente') }}" class="btn btn-sm btn-primary">
+            <i class="fas fa-user-plus"></i> Nuevo Cliente
+        </a>
+    </div>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-body">
+        <div class="row mb-3">
+            <div class="col-md-6">
+                <div class="input-group">
+                    <input type="text" class="form-control" id="searchCliente" placeholder="Buscar cliente...">
+                    <button class="btn btn-outline-secondary" type="button" id="btnSearch">
+                        <i class="fas fa-search"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="table-responsive">
+            <table class="table table-striped table-hover">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Nombre</th>
+                        <th>Email</th>
+                        <th>Teléfono</th>
+                        <th>Registro</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for cliente in clientes %}
+                    <tr>
+                        <td>{{ cliente.id }}</td>
+                        <td>{{ cliente.nombre }}</td>
+                        <td>{{ cliente.email }}</td>
+                        <td>{{ cliente.telefono }}</td>
+                        <td>{{ cliente.fecha_registro }}</td>
+                        <td>
+                            <div class="btn-group">
+                                <a href="{{ url_for('admin.ver_cliente', cliente_id=cliente.id) }}" class="btn btn-sm btn-outline-primary">
+                                    <i class="fas fa-eye"></i>
+                                </a>
+                                <a href="{{ url_for('admin.editar_cliente', cliente_id=cliente.id) }}" class="btn btn-sm btn-outline-secondary">
+                                    <i class="fas fa-edit"></i>
+                                </a>
+                            </div>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="text-center">No hay clientes registrados</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const searchInput = document.getElementById('searchCliente');
+        const tableRows = document.querySelectorAll('tbody tr');
+        
+        searchInput.addEventListener('keyup', function() {
+            const searchTerm = searchInput.value.toLowerCase();
+            
+            tableRows.forEach(row => {
+                const nombre = row.cells[1].textContent.toLowerCase();
+                const email = row.cells[2].textContent.toLowerCase();
+                const telefono = row.cells[3].textContent.toLowerCase();
+                
+                if (nombre.includes(searchTerm) || email.includes(searchTerm) || telefono.includes(searchTerm)) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        });
+    });
+</script>
+{% endblock %}
+
+<!-- templates/admin/calendario.html -->
+{% extends "admin/base.html" %}
+
+{% block title %}Calendario | Panel de Administración{% endblock %}
+
+{% block extra_css %}
+<link href='https://cdn.jsdelivr.net/npm/fullcalendar@5.10.1/main.min.css' rel='stylesheet' />
+<style>
+    .fc-event {
+        cursor: pointer;
+    }
+    
+    .modal-body p {
+        margin-bottom: 0.5rem;
+    }
+    
+    .modal-body .label {
+        font-weight: bold;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Calendario</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <a href="{{ url_for('admin.nueva_cita') }}" class="btn btn-sm btn-outline-primary">
+                <i class="fas fa-calendar-plus"></i> Nueva Cita
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-body">
+        <div id="calendar"></div>
+    </div>
+</div>
+
+<!-- Modal para ver detalles del evento -->
+<div class="modal fade" id="eventModal" tabindex="-1" aria-labelledby="eventModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="eventModalLabel">Detalles del evento</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="eventDetails">
+                <!-- Aquí se cargarán los detalles del evento -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                <button type="button" class="btn btn-primary" id="btnEditEvent">Editar</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src='https://cdn.jsdelivr.net/npm/fullcalendar@5.10.1/main.min.js'></script>
+<script src='https://cdn.jsdelivr.net/npm/fullcalendar@5.10.1/locales-all.min.js'></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const calendarEl = document.getElementById('calendar');
+        const eventModal = new bootstrap.Modal(document.getElementById('eventModal'));
+        const eventDetails = document.getElementById('eventDetails');
+        const btnEditEvent = document.getElementById('btnEditEvent');
+        
+        const calendar = new FullCalendar.Calendar(calendarEl, {
+            locale: 'es',
+            initialView: 'dayGridMonth',
+            headerToolbar: {
+                left: 'prev,next today',
+                center: 'title',
+                right: 'dayGridMonth,timeGridWeek,timeGridDay'
+            },
+            events: "{{ url_for('admin.api_eventos') }}",
+            eventClick: function(info) {
+                // Mostrar detalles del evento en el modal
+                const event = info.event;
+                const extProps = event.extendedProps;
+                
+                document.getElementById('eventModalLabel').textContent = event.title;
+                
+                let detailsHtml = `
+                    <p><span class="label">Fecha:</span> ${event.start.toLocaleDateString()}</p>
+                `;
+                
+                if (event.start.toTimeString() !== '00:00:00 GMT+0000 (Coordinated Universal Time)') {
+                    detailsHtml += `<p><span class="label">Hora:</span> ${event.start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>`;
+                }
+                
+                if (extProps.description) {
+                    detailsHtml += `<p><span class="label">Descripción:</span> ${extProps.description}</p>`;
+                }
+                
+                if (extProps.type === 'appointment') {
+                    detailsHtml += `
+                        <p><span class="label">Tipo:</span> Cita</p>
+                        <p><span class="label">Estado:</span> ${extProps.status || 'Pendiente'}</p>
+                        <p><span class="label">Cliente:</span> ${extProps.client?.name || ''}</p>
+                        <p><span class="label">Email:</span> ${extProps.client?.email || ''}</p>
+                        <p><span class="label">Teléfono:</span> ${extProps.client?.phone || ''}</p>
+                    `;
+                } else {
+                    detailsHtml += `
+                        <p><span class="label">Tipo:</span> Evento crítico</p>
+                        <p><span class="label">Estado:</span> ${extProps.completed ? 'Completado' : 'Pendiente'}</p>
+                        <p><span class="label">Proyecto:</span> ${extProps.project?.title || ''}</p>
+                        <p><span class="label">Cliente:</span> ${extProps.client?.name || ''}</p>
+                    `;
+                }
+                
+                eventDetails.innerHTML = detailsHtml;
+                
+                // Configurar botón de edición
+                btnEditEvent.onclick = function() {
+                    if (extProps.type === 'appointment') {
+                        window.location.href = `/admin/citas/editar/${event.id.replace('cita_', '')}`;
+                    } else {
+                        window.location.href = `/admin/eventos/editar/${event.id.replace('evento_', '')}`;
+                    }
+                };
+                
+                eventModal.show();
+            }
+        });
+        
+        calendar.render();
+    });
+</script>
+{% endblock %}
+
+<!-- templates/admin/proyecto_detalle.html -->
+{% extends "admin/base.html" %}
+
+{% block title %}Detalle de Proyecto | Panel de Administración{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Proyecto: {{ proyecto.titulo }}</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <a href="{{ url_for('admin.editar_proyecto', proyecto_id=proyecto.id) }}" class="btn btn-sm btn-outline-secondary">
+                <i class="fas fa-edit"></i> Editar
+            </a>
+            <a href="{{ url_for('admin.proyectos') }}" class="btn btn-sm btn-outline-secondary">
+                <i class="fas fa-arrow-left"></i> Volver
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card mb-4 shadow-sm">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Información del Proyecto</h5>
+                <span class="badge bg-{{ proyecto.estado == 'finalizado' ? 'success' : (proyecto.estado == 'nuevo' ? 'primary' : 'warning') }}">
+                    {{ proyecto.estado | capitalize }}
+                </span>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <p><strong>Cliente:</strong> {{ proyecto.cliente_nombre }}</p>
+                        <p><strong>Abogado:</strong> {{ proyecto.abogado }}</p>
+                        <p><strong>Fecha de inicio:</strong> {{ proyecto.fecha_inicio }}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <p><strong>Email del cliente:</strong> {{ proyecto.cliente_email }}</p>
+                        <p><strong>Última actualización:</strong> {{ proyecto.ultima_actualizacion }}</p>
+                    </div>
+                </div>
+                <hr>
+                <div class="mb-3">
+                    <h6>Descripción</h6>
+                    <p>{{ proyecto.descripcion }}</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4 shadow-sm">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Notas del Proyecto</h5>
+                <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#addNotaModal">
+                    <i class="fas fa-plus"></i> Nueva Nota
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="timeline">
+                    {% for nota in proyecto.notas %}
+                    <div class="timeline-item mb-3 pb-3 border-bottom">
+                        <div class="d-flex justify-content-between">
+                            <strong>{{ nota.fecha }}</strong>
+                            <button class="btn btn-sm btn-link text-danger" onclick="deleteNota({{ nota.id }})">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                        <p>{{ nota.texto }}</p>
+                    </div>
+                    {% else %}
+                    <p class="text-center text-muted">No hay notas registradas</p>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card mb-4 shadow-sm">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Eventos Críticos</h5>
+                <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#addEventoModal">
+                    <i class="fas fa-plus"></i> Nuevo Evento
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="list-group">
+                    {% for evento in proyecto.eventos %}
+                    <div class="list-group-item list-group-item-action flex-column align-items-start">
+                        <div class="d-flex w-100 justify-content-between">
+                            <h6 class="mb-1">{{ evento.titulo }}</h6>
+                            <small class="text-muted">{{ evento.fecha }}</small>
+                        </div>
+                        <p class="mb-1">{{ evento.descripcion }}</p>
+                        <div class="d-flex justify-content-between align-items-center mt-2">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" value="" id="evento{{ evento.id }}" 
+                                       {{ evento.completado ? 'checked' : '' }} 
+                                       onchange="toggleEventoCompletado({{ evento.id }}, this.checked)">
+                                <label class="form-check-label" for="evento{{ evento.id }}">
+                                    Completado
+                                </label>
+                            </div>
+                            <button class="btn btn-sm btn-outline-danger" onclick="deleteEvento({{ evento.id }})">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                    {% else %}
+                    <p class="text-center text-muted">No hay eventos críticos</p>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4 shadow-sm">
+            <div class="card-header">
+                <h5 class="mb-0">Citas Relacionadas</h5>
+            </div>
+            <div class="card-body">
+                <div class="list-group">
+                    {% for cita in citas_cliente %}
+                    <a href="{{ url_for('admin.ver_cita', cita_id=cita.id) }}" class="list-group-item list-group-item-action">
+                        <div class="d-flex w-100 justify-content-between">
+                            <h6 class="mb-1">{{ cita.tipo | capitalize }}</h6>
+                            <small>{{ cita.fecha }}</small>
+                        </div>
+                        <p class="mb-1">{{ cita.hora }} - {{ cita.tema }}</p>
+                        <small class="text-muted">Estado: {{ cita.estado | capitalize }}</small>
+                    </a>
+                    {% else %}
+                    <p class="text-center text-muted">No hay citas registradas</p>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal para añadir nota -->
+<div class="modal fade" id="addNotaModal" tabindex="-1" aria-labelledby="addNotaModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="addNotaModalLabel">Nueva Nota</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="notaForm" method="post" action="{{ url_for('admin.add_nota_proyecto', proyecto_id=proyecto.id) }}">
+                    <div class="mb-3">
+                        <label for="texto" class="form-label">Texto de la nota</label>
+                        <textarea class="form-control" id="texto" name="texto" rows="3" required></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" form="notaForm" class="btn btn-primary">Guardar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal para añadir evento crítico -->
+<div class="modal fade" id="addEventoModal" tabindex="-1" aria-labelledby="addEventoModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="addEventoModalLabel">Nuevo Evento Crítico</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="eventoForm" method="post" action="{{ url_for('admin.add_evento_proyecto', proyecto_id=proyecto.id) }}">
+                    <div class="mb-3">
+                        <label for="titulo" class="form-label">Título</label>
+                        <input type="text" class="form-control" id="titulo" name="titulo" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="fecha" class="form-label">Fecha</label>
+                        <input type="date" class="form-control" id="fecha" name="fecha" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="descripcion" class="form-label">Descripción</label>
+                        <textarea class="form-control" id="descripcion" name="descripcion" rows="2"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" form="eventoForm" class="btn btn-primary">Guardar</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function toggleEventoCompletado(eventoId, isCompleted) {
+        fetch(`/admin/api/eventos/${eventoId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                completado: isCompleted
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Opcional: mostrar un mensaje de éxito
+            } else {
+                alert('Error al actualizar el estado del evento');
+                // Revertir el cambio en la UI
+                document.getElementById(`evento${eventoId}`).checked = !isCompleted;
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error al actualizar el estado del evento');
+            document.getElementById(`evento${eventoId}`).checked = !isCompleted;
+        });
+    }
+    
+    function deleteNota(notaId) {
+        if (confirm('¿Estás seguro de que deseas eliminar esta nota?')) {
+            fetch(`/admin/api/notas/${notaId}`, {
+                method: 'DELETE'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    window.location.reload();
+                } else {
+                    alert('Error al eliminar la nota');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error al eliminar la nota');
+            });
+        }
+    }
+    
+    function deleteEvento(eventoId) {
+        if (confirm('¿Estás seguro de que deseas eliminar este evento?')) {
+            fetch(`/admin/api/eventos/${eventoId}`, {
+                method: 'DELETE'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    window.location.reload();
+                } else {
+                    alert('Error al eliminar el evento');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error al eliminar el evento');
+            });
+        }
+    }
+</script>
+{% endblock %}

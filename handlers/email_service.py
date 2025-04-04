@@ -188,3 +188,79 @@ def _obtener_dias_disponibles_simulados(mes, anio, tipo_reunion):
     dias_disponibles = sorted(random.sample(dias_laborables, num_disponibles))
     
     return dias_disponibles
+
+
+def enviar_sms_confirmacion(telefono, fecha, hora, tipo_reunion, tema_reunion=None):
+    """
+    Envía un SMS de confirmación utilizando Twilio.
+    
+    Args:
+        telefono: Número de teléfono del cliente
+        fecha: Fecha en formato "YYYY-MM-DD"
+        hora: Hora en formato "HH:MM"
+        tipo_reunion: Tipo de reunión
+        tema_reunion: Tema o motivo de la reunión (opcional)
+    
+    Returns:
+        True si se envió correctamente (simulado)
+    """
+    import os
+    from datetime import datetime
+    from twilio.rest import Client
+    from config import TIPOS_REUNION
+    
+    # Credenciales de Twilio
+    account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
+    auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
+    twilio_number = os.environ.get('TWILIO_PHONE_NUMBER', '')  # Número de teléfono de Twilio
+    
+    if not all([account_sid, auth_token, twilio_number]):
+        print("ERROR - Faltan credenciales de Twilio para enviar SMS")
+        return False
+    
+    try:
+        # Formatear fecha para mostrar
+        fecha_dt = datetime.strptime(fecha, "%Y-%m-%d")
+        fecha_formateada = fecha_dt.strftime("%d/%m/%Y")
+        
+        duracion = TIPOS_REUNION[tipo_reunion]["duracion_cliente"]
+        
+        # Crear mensaje SMS
+        mensaje = f"Confirmación de cita legal: {tipo_reunion} el {fecha_formateada} a las {hora}. "
+        
+        if tema_reunion:
+            mensaje += f"Tema: {tema_reunion}. "
+            
+        mensaje += f"Duración: {duracion} min. Gracias por utilizar nuestros servicios."
+        
+        # Limpiar número de teléfono (quitar espacios, guiones, etc.)
+        import re
+        telefono_limpio = re.sub(r'[\s\-\(\)\+]', '', telefono)
+        if not telefono_limpio.startswith('+'):
+            telefono_limpio = '+34' + telefono_limpio  # Añadir prefijo España si no tiene código de país
+            
+        # Enviar SMS con Twilio
+        client = Client(account_sid, auth_token)
+        message = client.messages.create(
+            body=mensaje,
+            from_=twilio_number,
+            to=telefono_limpio
+        )
+        
+        print(f"DEBUG - SMS enviado con SID: {message.sid}")
+        return True
+        
+    except Exception as e:
+        print(f"ERROR - No se pudo enviar el SMS: {str(e)}")
+        return False
+
+# Modificar en handlers/conversation.py la función _confirmar_cita para incluir SMS
+
+# Añadir esta línea después de enviar_correo_confirmacion:
+enviar_sms_confirmacion(
+    estado_usuario["datos"]["telefono"],
+    estado_usuario["fecha"],
+    estado_usuario["hora"],
+    estado_usuario["tipo_reunion"],
+    estado_usuario["tema_reunion"]
+)

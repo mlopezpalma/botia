@@ -241,8 +241,8 @@
         
         // Mostrar el botón de calendario si se debe
         if (showCalendar) {
-            calendarButton.style.display = 'block';
-            // Mostrar automáticamente el calendario
+            // Mostrar el calendario directamente sin botón intermedio
+            calendarButton.style.display = 'none';
             setTimeout(function() {
                 showCalendarView();
             }, 500);
@@ -417,7 +417,18 @@
         
         var monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
         
-        var html = '<div style="text-align:center; margin-bottom:10px;"><strong>' + monthNames[month] + ' ' + year + '</strong></div>';
+        var html = '<div style="text-align:center; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center;">';
+        
+        // Botón para el mes anterior
+        html += '<button id="prev-month" style="background-color:#1890ff; color:white; border:none; border-radius:4px; padding:5px 10px; cursor:pointer;">&lt;</button>';
+        
+        // Título del mes y año actual
+        html += '<strong>' + monthNames[month] + ' ' + year + '</strong>';
+        
+        // Botón para el mes siguiente
+        html += '<button id="next-month" style="background-color:#1890ff; color:white; border:none; border-radius:4px; padding:5px 10px; cursor:pointer;">&gt;</button>';
+        
+        html += '</div>';
         
         html += '<table style="width:100%; border-collapse:collapse;">';
         html += '<tr>';
@@ -483,8 +494,8 @@
             }
             html += '</tr>';
             
-            // Detener si ya hemos pasado al siguiente mes
-            if (currentDate.getMonth() !== month && j === 0) {
+            // Detener si ya hemos pasado al siguiente mes y hemos completado una fila
+            if (currentDate.getMonth() !== month && j === 6) {
                 break;
             }
         }
@@ -504,4 +515,59 @@
         
         return html;
     }
+
+    function showCalendarView() {
+        calendarDiv.innerHTML = 'Cargando calendario...';
+        calendarDiv.style.display = 'block';
+        
+        // Fecha actual para el calendario (usar variable global para mantener el estado)
+        if (!window.currentCalendarDate) {
+            window.currentCalendarDate = new Date();
+        }
+        
+        var fechaActual = window.currentCalendarDate;
+        var tipo_reunion = 'presencial'; // Por defecto
+        
+        // Intentar obtener el tipo de reunión del último mensaje del bot
+        var botMessages = messagesArea.querySelectorAll('div[style*="text-align: left"]');
+        if (botMessages.length > 0) {
+            var lastBotMessage = botMessages[botMessages.length - 1].textContent;
+            if (lastBotMessage.includes("presencial")) {
+                tipo_reunion = "presencial";
+            } else if (lastBotMessage.includes("videoconferencia")) {
+                tipo_reunion = "videoconferencia";
+            } else if (lastBotMessage.includes("telefonica") || lastBotMessage.includes("telefónica")) {
+                tipo_reunion = "telefonica";
+            }
+        }
+        
+        // Generar y mostrar el calendario
+        calendarDiv.innerHTML = generateCalendar(fechaActual, tipo_reunion);
+        
+        // Añadir eventos a las fechas disponibles
+        var dateCells = calendarDiv.querySelectorAll('.date-cell');
+        dateCells.forEach(function(cell) {
+            cell.addEventListener('click', function() {
+                var date = this.getAttribute('data-date');
+                inputBox.value = 'Quiero una cita el ' + date;
+                sendUserMessage(inputBox.value);
+                calendarDiv.style.display = 'none';
+            });
+        });
+        
+        // Añadir eventos a los botones de navegación
+        document.getElementById('prev-month').addEventListener('click', function(e) {
+            e.stopPropagation();
+            window.currentCalendarDate = new Date(fechaActual.getFullYear(), fechaActual.getMonth() - 1, 1);
+            showCalendarView();
+        });
+        
+        document.getElementById('next-month').addEventListener('click', function(e) {
+            e.stopPropagation();
+            window.currentCalendarDate = new Date(fechaActual.getFullYear(), fechaActual.getMonth() + 1, 1);
+            showCalendarView();
+        });
+    }
+    
+
 })();
