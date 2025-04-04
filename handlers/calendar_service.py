@@ -1,10 +1,14 @@
 import os
 import datetime
 import pickle
+import logging
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from config import HORARIOS_POR_TIPO, TIPOS_REUNION
+
+# Configurar logging
+logger = logging.getLogger(__name__)
 
 # Si modificas estos SCOPES, borra el archivo token.pickle.
 SCOPES = ['https://www.googleapis.com/auth/calendar']
@@ -154,7 +158,7 @@ def obtener_horarios_disponibles(fecha, tipo_reunion):
             return horarios_disponibles
         
     except Exception as e:
-        print(f"Error al obtener horarios de Google Calendar: {str(e)}")
+        logger.error(f"Error al obtener horarios de Google Calendar: {str(e)}")
         # En caso de error, devolver una respuesta simulada
         return _obtener_horarios_simulados(fecha, tipo_reunion)
     
@@ -169,38 +173,38 @@ def encontrar_proxima_fecha_disponible(tipo_reunion):
     Returns:
         Tupla (fecha, hora) de la próxima cita disponible o (None, None) si no hay disponibilidad
     """
-    print(f"DEBUG - ENTRADA encontrar_proxima_fecha_disponible: tipo_reunion={tipo_reunion}")
+    logger.debug(f"ENTRADA encontrar_proxima_fecha_disponible: tipo_reunion={tipo_reunion}")
     
     try:
         hoy = datetime.datetime.now()
-        print(f"DEBUG - Fecha y hora actual: {hoy}")
+        logger.debug(f"Fecha y hora actual: {hoy}")
         hora_actual = hoy.time()
-        print(f"DEBUG - Hora actual: {hora_actual}")
+        logger.debug(f"Hora actual: {hora_actual}")
         
         # Buscar en los próximos 14 días
         for i in range(14):
             fecha_check = hoy + datetime.timedelta(days=i)
-            print(f"DEBUG - Comprobando fecha: {fecha_check}")
+            logger.debug(f"Comprobando fecha: {fecha_check}")
             
             # Saltar fines de semana
             if fecha_check.weekday() >= 5:  # 5=Sábado, 6=Domingo
-                print(f"DEBUG - Fecha {fecha_check} es fin de semana, saltando")
+                logger.debug(f"Fecha {fecha_check} es fin de semana, saltando")
                 continue
                 
             # Obtener horarios disponibles para ese día (ya filtrados por la hora actual si es hoy)
             horarios = obtener_horarios_disponibles(fecha_check, tipo_reunion)
-            print(f"DEBUG - Horarios disponibles para {fecha_check}: {horarios}")
+            logger.debug(f"Horarios disponibles para {fecha_check}: {horarios}")
             
             if horarios:
-                print(f"DEBUG - Se encontraron horarios disponibles, seleccionando: {horarios[0]}")
+                logger.debug(f"Se encontraron horarios disponibles, seleccionando: {horarios[0]}")
                 return fecha_check.strftime("%Y-%m-%d"), horarios[0]
         
-        print(f"DEBUG - No se encontraron horarios disponibles en los próximos 14 días")
+        logger.debug(f"No se encontraron horarios disponibles en los próximos 14 días")
         return None, None
     except Exception as e:
-        print(f"ERROR al buscar fecha disponible: {str(e)}")
+        logger.error(f"ERROR al buscar fecha disponible: {str(e)}")
         import traceback
-        print(traceback.format_exc())
+        logger.error(traceback.format_exc())
         # En caso de error, devolver una respuesta simulada
         return _encontrar_proxima_fecha_simulada(tipo_reunion)
 
@@ -279,7 +283,7 @@ def agendar_en_calendario(fecha, hora, tipo_reunion, datos_cliente, tema_reunion
         
         return evento
     except Exception as e:
-        print(f"Error al agendar cita en Google Calendar: {str(e)}")
+        logger.error(f"Error al agendar cita en Google Calendar: {str(e)}")
         # En caso de error, devolver un evento simulado
         return _crear_evento_simulado(fecha, hora, tipo_reunion, datos_cliente, tema_reunion)
 
@@ -287,113 +291,7 @@ def agendar_en_calendario(fecha, hora, tipo_reunion, datos_cliente, tema_reunion
 
 def _obtener_horarios_simulados(fecha, tipo_reunion):
     """Versión simulada de obtener_horarios_disponibles para usar en caso de errores"""
-    print(f"ADVERTENCIA: Usando horarios simulados para {fecha} y {tipo_reunion}")
-    
-    if isinstance(fecha, str):
-        try:
-            fecha_dt = datetime.datetime.strptime(fecha, "%Y-%m-%d")
-            # Si es fin de semana, no hay horarios disponibles
-            if fecha_dt.weekday() >= 5:  # 5=Sábado, 6=Domingo
-                return []
-            
-            # Verificar si es hoy
-            hoy = datetime.datetime.now().date()
-            es_hoy = fecha_dt.date() == hoy
-            
-        except (ValueError, TypeError):
-            # Si hay problemas con la fecha, asumir que no es hoy
-            fecha_dt = datetime.datetime.now()
-            es_hoy = False
-    else:
-        try:
-            # Si es fin de semana, no hay horarios disponibles
-            if fecha.weekday() >= 5:  # 5=Sábado, 6=Domingo
-                return []
-            
-            # Verificar si es hoy
-            hoy = datetime.datetime.now().date()
-            es_hoy = fecha.date() == hoy
-            
-        except (AttributeError, TypeError):
-            # Si hay problemas con la fecha, asumir que no es hoy
-            es_hoy = False
-    
-    # Para tests, devolver valores según tipo de reunión
-    if tipo_reunion == "telefonica":
-        horarios = ["09:00", "09:15", "09:30", "10:00", "10:15", "10:30", "15:00", "15:15", "15:30"]
-    elif tipo_reunion == "videoconferencia":
-        horarios = ["09:00", "10:00", "11:00", "15:00", "16:00"]
-    else:  # Presencial
-        horarios = ["09:00", "10:00", "11:00", "15:00", "16:00"]
-    
-    # Si es hoy, filtrar las horas pasadas
-    if es_hoy:
-        hora_actual = datetime.datetime.now()
-        minutos_actuales = hora_actual.hour * 60 + hora_actual.minute + 60  # 60 min de margen
-        
-        horarios = [h for h in horarios if 
-                   int(h.split(':')[0]) * 60 + int(h.split(':')[1]) > minutos_actuales]
-    
-    return horarios
-
-# Estas son versiones mejoradas de las funciones auxiliares para usar con los tests
-
-def _encontrar_proxima_fecha_simulada(tipo_reunion):
-    """Versión simulada de encontrar_proxima_fecha_disponible para usar en caso de errores"""
-    print(f"ADVERTENCIA: Usando fecha próxima simulada para {tipo_reunion}")
-    
-    try:
-        # Comprobar los próximos 7 días
-        ahora = datetime.datetime.now()
-        print(f"DEBUG - Simulación fecha próxima - Fecha y hora actual: {ahora}")
-        
-        for i in range(7):
-            fecha_check = ahora + datetime.timedelta(days=i)
-            print(f"DEBUG - Simulación fecha próxima - Comprobando fecha: {fecha_check}")
-            
-            # Saltar fines de semana
-            if fecha_check.weekday() >= 5:  # 5=Sábado, 6=Domingo
-                print(f"DEBUG - Simulación fecha próxima - Es fin de semana, saltando")
-                continue
-                
-            # Obtener horarios simulados para esta fecha
-            horarios = _obtener_horarios_simulados(fecha_check, tipo_reunion)
-            print(f"DEBUG - Simulación fecha próxima - Horarios disponibles: {horarios}")
-            
-            if horarios:
-                print(f"DEBUG - Simulación fecha próxima - Seleccionando primera hora disponible: {horarios[0]}")
-                return fecha_check.strftime("%Y-%m-%d"), horarios[0]
-        
-        # Si llegamos aquí y no hemos encontrado nada, usar valores predeterminados
-        # Usar el próximo día laborable
-        dias = 1
-        while True:
-            fecha_futura = ahora + datetime.timedelta(days=dias)
-            if fecha_futura.weekday() < 5:  # No es fin de semana
-                break
-            dias += 1
-            
-        # Hora según tipo de reunión
-        if tipo_reunion == "telefonica":
-            hora = "09:15"
-        elif tipo_reunion == "videoconferencia":
-            hora = "10:00"
-        else:  # Presencial
-            hora = "09:30"
-            
-        print(f"DEBUG - Simulación fecha próxima - Usando valores predeterminados: {fecha_futura.strftime('%Y-%m-%d')}, {hora}")
-        return fecha_futura.strftime("%Y-%m-%d"), hora
-    
-    except Exception as e:
-        print(f"ERROR en simulación de fecha próxima: {str(e)}")
-        # Valores realmente de último recurso
-        proxima_fecha = (datetime.datetime.now() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-        hora = "10:00"
-        print(f"DEBUG - Simulación fecha próxima - Usando valores de emergencia: {proxima_fecha}, {hora}")
-        return proxima_fecha, hora
-def _obtener_horarios_simulados(fecha, tipo_reunion):
-    """Versión simulada de obtener_horarios_disponibles para usar en caso de errores"""
-    print(f"ADVERTENCIA: Usando horarios simulados para {fecha} y {tipo_reunion}")
+    logger.warning(f"Usando horarios simulados para {fecha} y {tipo_reunion}")
     
     if isinstance(fecha, str):
         try:
@@ -427,10 +325,63 @@ def _obtener_horarios_simulados(fecha, tipo_reunion):
     else:  # Presencial
         return ["09:00", "10:00", "11:00", "15:00", "16:00"]
 
+def _encontrar_proxima_fecha_simulada(tipo_reunion):
+    """Versión simulada de encontrar_proxima_fecha_disponible para usar en caso de errores"""
+    logger.warning(f"Usando fecha próxima simulada para {tipo_reunion}")
+    
+    try:
+        # Comprobar los próximos 7 días
+        ahora = datetime.datetime.now()
+        logger.debug(f"Simulación fecha próxima - Fecha y hora actual: {ahora}")
+        
+        for i in range(7):
+            fecha_check = ahora + datetime.timedelta(days=i)
+            logger.debug(f"Simulación fecha próxima - Comprobando fecha: {fecha_check}")
+            
+            # Saltar fines de semana
+            if fecha_check.weekday() >= 5:  # 5=Sábado, 6=Domingo
+                logger.debug(f"Simulación fecha próxima - Es fin de semana, saltando")
+                continue
+                
+            # Obtener horarios simulados para esta fecha
+            horarios = _obtener_horarios_simulados(fecha_check, tipo_reunion)
+            logger.debug(f"Simulación fecha próxima - Horarios disponibles: {horarios}")
+            
+            if horarios:
+                logger.debug(f"Simulación fecha próxima - Seleccionando primera hora disponible: {horarios[0]}")
+                return fecha_check.strftime("%Y-%m-%d"), horarios[0]
+        
+        # Si llegamos aquí y no hemos encontrado nada, usar valores predeterminados
+        # Usar el próximo día laborable
+        dias = 1
+        while True:
+            fecha_futura = ahora + datetime.timedelta(days=dias)
+            if fecha_futura.weekday() < 5:  # No es fin de semana
+                break
+            dias += 1
+            
+        # Hora según tipo de reunión
+        if tipo_reunion == "telefonica":
+            hora = "09:15"
+        elif tipo_reunion == "videoconferencia":
+            hora = "10:00"
+        else:  # Presencial
+            hora = "09:30"
+            
+        logger.debug(f"Simulación fecha próxima - Usando valores predeterminados: {fecha_futura.strftime('%Y-%m-%d')}, {hora}")
+        return fecha_futura.strftime("%Y-%m-%d"), hora
+    
+    except Exception as e:
+        logger.error(f"ERROR en simulación de fecha próxima: {str(e)}")
+        # Valores realmente de último recurso
+        proxima_fecha = (datetime.datetime.now() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+        hora = "10:00"
+        logger.debug(f"Simulación fecha próxima - Usando valores de emergencia: {proxima_fecha}, {hora}")
+        return proxima_fecha, hora
 
 def _crear_evento_simulado(fecha, hora, tipo_reunion, datos_cliente, tema_reunion=None):
     """Versión simulada de crear_evento para usar en caso de errores"""
-    print(f"ADVERTENCIA: Creando evento simulado para {fecha} {hora} - {tipo_reunion}")
+    logger.warning(f"Creando evento simulado para {fecha} {hora} - {tipo_reunion}")
     
     # Preparar título y descripción del evento
     titulo = f'Consulta Legal - {datos_cliente["nombre"]} [SIMULADO]'
@@ -456,8 +407,6 @@ def _crear_evento_simulado(fecha, hora, tipo_reunion, datos_cliente, tema_reunio
     }
 
 def obtener_dias_disponibles(mes, anio, tipo_reunion):
-    print(f"DEBUG - obtener_dias_disponibles llamado con mes={mes}, anio={anio}, tipo_reunion={tipo_reunion}")
-    
     """
     Obtiene los días con disponibilidad para un mes y tipo de reunión específicos.
     
@@ -469,8 +418,9 @@ def obtener_dias_disponibles(mes, anio, tipo_reunion):
     Returns:
         Lista de números de días con disponibilidad
     """
+    logger.debug(f"obtener_dias_disponibles llamado con mes={mes}, anio={anio}, tipo_reunion={tipo_reunion}")
+    
     import calendar
-    import datetime
     
     # Obtener el número de días en el mes
     _, num_dias = calendar.monthrange(anio, mes)
@@ -483,47 +433,44 @@ def obtener_dias_disponibles(mes, anio, tipo_reunion):
         try:
             # Crear fecha para el día
             fecha = datetime.datetime(anio, mes, dia)
-            print(f"DEBUG - Comprobando día {dia}/{mes}/{anio}")
+            logger.debug(f"Comprobando día {dia}/{mes}/{anio}")
 
             # Saltar fines de semana
             if fecha.weekday() >= 5:  # 5=Sábado, 6=Domingo
-                print(f"DEBUG - Día {dia}/{mes}/{anio} es fin de semana, saltando")
+                logger.debug(f"Día {dia}/{mes}/{anio} es fin de semana, saltando")
                 continue
                 
             # Obtener horarios disponibles para ese día
-            print(f"DEBUG - Intentando obtener horarios para {dia}/{mes}/{anio}")
+            logger.debug(f"Intentando obtener horarios para {dia}/{mes}/{anio}")
             horarios = obtener_horarios_disponibles(fecha, tipo_reunion)
-            print(f"DEBUG - Horarios disponibles para {dia}/{mes}/{anio}: {horarios}")
+            logger.debug(f"Horarios disponibles para {dia}/{mes}/{anio}: {horarios}")
 
             # Si hay horarios disponibles, añadir el día a la lista
             if horarios:
                 dias_disponibles.append(dia)
         except Exception as e:
-            print(f"Error al comprobar disponibilidad del día {dia}/{mes}/{anio}: {str(e)}")
+            logger.error(f"Error al comprobar disponibilidad del día {dia}/{mes}/{anio}: {str(e)}")
         
     # Al final de la función, antes de retornar:
-    print(f"DEBUG - Días disponibles encontrados: {dias_disponibles}")
+    logger.debug(f"Días disponibles encontrados: {dias_disponibles}")
 
     # Si no hay días disponibles, usar simulación
     if not dias_disponibles:
-        print(f"DEBUG - No se encontraron días disponibles, usando simulación")
+        logger.debug(f"No se encontraron días disponibles, usando simulación")
         try:
             return _obtener_dias_disponibles_simulados(mes, anio, tipo_reunion)
         except Exception as e:
-            print(f"DEBUG - Error al obtener días simulados: {str(e)}")
+            logger.error(f"Error al obtener días simulados: {str(e)}")
             return []  # Retornar lista vacía como último recurso
 
     return dias_disponibles
 
-
-# En caso de error o para uso en tests, versión simulada
 def _obtener_dias_disponibles_simulados(mes, anio, tipo_reunion):
     """Versión simulada de obtener_dias_disponibles para usar en caso de errores."""
     import calendar
-    import datetime
     import random
     
-    print(f"ADVERTENCIA: Usando días disponibles simulados para {mes}/{anio} y {tipo_reunion}")
+    logger.warning(f"Usando días disponibles simulados para {mes}/{anio} y {tipo_reunion}")
     
     # Obtener el número de días en el mes
     _, num_dias = calendar.monthrange(anio, mes)

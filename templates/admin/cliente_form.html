@@ -1,0 +1,55 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Nuevo Cliente | Panel de Administración{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Nuevo Cliente</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <a href="{{ url_for('admin.clientes') }}" class="btn btn-sm btn-outline-secondary">
+            <i class="fas fa-arrow-left"></i> Volver a clientes
+        </a>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <form method="post">
+                    <div class="mb-3">
+                        <label for="nombre" class="form-label">Nombre completo *</label>
+                        <input type="text" class="form-control" id="nombre" name="nombre" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="email" class="form-label">Email *</label>
+                        <input type="email" class="form-control" id="email" name="email" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="telefono" class="form-label">Teléfono</label>
+                        <input type="tel" class="form-control" id="telefono" name="telefono">
+                    </div>
+                    <div class="mb-3">
+                        <label for="notas" class="form-label">Notas</label>
+                        <textarea class="form-control" id="notas" name="notas" rows="3"></textarea>
+                    </div>
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary">Guardar Cliente</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card shadow-sm">
+            <div class="card-header bg-light">
+                <h5 class="card-title mb-0">Información</h5>
+            </div>
+            <div class="card-body">
+                <p>Completa el formulario con los datos del cliente.</p>
+                <p>Los campos marcados con * son obligatorios.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

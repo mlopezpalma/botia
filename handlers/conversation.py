@@ -1,6 +1,5 @@
 import datetime
 import re
-from config import HORARIOS_POR_TIPO, TIPOS_REUNION, INTENCIONES, MENSAJES_MENU, citas_db, clientes_db
 from models.intent_model import identificar_intencion
 from models.data_extraction import (
     identificar_fecha, identificar_hora,
@@ -11,10 +10,16 @@ from handlers.calendar_service import (
     encontrar_proxima_fecha_disponible,
     agendar_en_calendario
 )
-from handlers.email_service import enviar_correo_confirmacion
+from handlers.email_service import enviar_correo_confirmacion, enviar_sms_confirmacion
 
 # Añadir importación de casos_db y ESTADOS_CASO al inicio del archivo
 from config import HORARIOS_POR_TIPO, TIPOS_REUNION, INTENCIONES, MENSAJES_MENU, citas_db, clientes_db, casos_db, ESTADOS_CASO
+
+
+# Configurar logging
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 # Modificar la función reset_conversacion para incluir el nuevo estado
@@ -564,6 +569,20 @@ def _confirmar_cita(estado_usuario, user_id, user_states):
         estado_usuario["tipo_reunion"],
         estado_usuario["tema_reunion"]
     )
+    
+    # Enviar SMS de confirmación si el teléfono está disponible
+    if estado_usuario["datos"]["telefono"]:
+        try:
+            enviar_sms_confirmacion(
+                estado_usuario["datos"]["telefono"],
+                estado_usuario["fecha"],
+                estado_usuario["hora"],
+                estado_usuario["tipo_reunion"],
+                estado_usuario["tema_reunion"]
+            )
+        except Exception as e:
+            print(f"Error al enviar SMS: {str(e)}")
+    
     
     # Guardar en base de datos
     cita_id = f"cita_{len(citas_db) + 1:04d}"

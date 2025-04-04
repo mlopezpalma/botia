@@ -1,0 +1,264 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Detalle de Proyecto | Panel de Administración{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Proyecto: {{ proyecto.titulo }}</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <a href="{{ url_for('admin.editar_proyecto', proyecto_id=proyecto.id) }}" class="btn btn-sm btn-outline-secondary">
+                <i class="fas fa-edit"></i> Editar
+            </a>
+            <a href="{{ url_for('admin.proyectos') }}" class="btn btn-sm btn-outline-secondary">
+                <i class="fas fa-arrow-left"></i> Volver
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card mb-4 shadow-sm">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Información del Proyecto</h5>
+                <span class="badge bg-{% if proyecto.estado == 'finalizado' %}success{% elif proyecto.estado == 'nuevo' %}primary{% else %}warning{% endif %}">
+                    {{ proyecto.estado | capitalize }}
+                </span>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <p><strong>Cliente:</strong> {{ proyecto.cliente_nombre }}</p>
+                        <p><strong>Abogado:</strong> {{ proyecto.abogado }}</p>
+                        <p><strong>Fecha de inicio:</strong> {{ proyecto.fecha_inicio }}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <p><strong>Email del cliente:</strong> {{ proyecto.cliente_email }}</p>
+                        <p><strong>Última actualización:</strong> {{ proyecto.ultima_actualizacion }}</p>
+                    </div>
+                </div>
+                <hr>
+                <div class="mb-3">
+                    <h6>Descripción</h6>
+                    <p>{{ proyecto.descripcion }}</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4 shadow-sm">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Notas del Proyecto</h5>
+                <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#addNotaModal">
+                    <i class="fas fa-plus"></i> Nueva Nota
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="timeline">
+                    {% for nota in proyecto.notas %}
+                    <div class="timeline-item mb-3 pb-3 border-bottom">
+                        <div class="d-flex justify-content-between">
+                            <strong>{{ nota.fecha }}</strong>
+                            <button class="btn btn-sm btn-link text-danger" onclick="deleteNota({{ nota.id }})">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                        <p>{{ nota.texto }}</p>
+                    </div>
+                    {% else %}
+                    <p class="text-center text-muted">No hay notas registradas</p>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card mb-4 shadow-sm">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Eventos Críticos</h5>
+                <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#addEventoModal">
+                    <i class="fas fa-plus"></i> Nuevo Evento
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="list-group">
+                    {% for evento in proyecto.eventos %}
+                    <div class="list-group-item list-group-item-action flex-column align-items-start">
+                        <div class="d-flex w-100 justify-content-between">
+                            <h6 class="mb-1">{{ evento.titulo }}</h6>
+                            <small class="text-muted">{{ evento.fecha }}</small>
+                        </div>
+                        <p class="mb-1">{{ evento.descripcion }}</p>
+                        <div class="d-flex justify-content-between align-items-center mt-2">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" value="" id="evento{{ evento.id }}" 
+                                       {% if evento.completado %}checked{% endif %} 
+                                       onchange="toggleEventoCompletado({{ evento.id }}, this.checked)">
+                                <label class="form-check-label" for="evento{{ evento.id }}">
+                                    Completado
+                                </label>
+                            </div>
+                            <button class="btn btn-sm btn-outline-danger" onclick="deleteEvento({{ evento.id }})">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                    {% else %}
+                    <p class="text-center text-muted">No hay eventos críticos</p>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4 shadow-sm">
+            <div class="card-header">
+                <h5 class="mb-0">Citas Relacionadas</h5>
+            </div>
+            <div class="card-body">
+                <div class="list-group">
+                    {% for cita in citas_cliente %}
+                    <a href="{{ url_for('admin.ver_cita', cita_id=cita.id) }}" class="list-group-item list-group-item-action">
+                        <div class="d-flex w-100 justify-content-between">
+                            <h6 class="mb-1">{{ cita.tipo | capitalize }}</h6>
+                            <small>{{ cita.fecha }}</small>
+                        </div>
+                        <p class="mb-1">{{ cita.hora }} - {{ cita.tema }}</p>
+                        <small class="text-muted">Estado: {{ cita.estado | capitalize }}</small>
+                    </a>
+                    {% else %}
+                    <p class="text-center text-muted">No hay citas registradas</p>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal para añadir nota -->
+<div class="modal fade" id="addNotaModal" tabindex="-1" aria-labelledby="addNotaModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="addNotaModalLabel">Nueva Nota</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="notaForm" method="post" action="{{ url_for('admin.add_nota_proyecto', proyecto_id=proyecto.id) }}">
+                    <div class="mb-3">
+                        <label for="texto" class="form-label">Texto de la nota</label>
+                        <textarea class="form-control" id="texto" name="texto" rows="3" required></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" form="notaForm" class="btn btn-primary">Guardar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal para añadir evento crítico -->
+<div class="modal fade" id="addEventoModal" tabindex="-1" aria-labelledby="addEventoModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="addEventoModalLabel">Nuevo Evento Crítico</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="eventoForm" method="post" action="{{ url_for('admin.add_evento_proyecto', proyecto_id=proyecto.id) }}">
+                    <div class="mb-3">
+                        <label for="titulo" class="form-label">Título</label>
+                        <input type="text" class="form-control" id="titulo" name="titulo" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="fecha" class="form-label">Fecha</label>
+                        <input type="date" class="form-control" id="fecha" name="fecha" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="descripcion" class="form-label">Descripción</label>
+                        <textarea class="form-control" id="descripcion" name="descripcion" rows="2"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" form="eventoForm" class="btn btn-primary">Guardar</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function toggleEventoCompletado(eventoId, isCompleted) {
+        fetch(`/admin/api/eventos/${eventoId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                completado: isCompleted
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Opcional: mostrar un mensaje de éxito
+            } else {
+                alert('Error al actualizar el estado del evento');
+                // Revertir el cambio en la UI
+                document.getElementById(`evento${eventoId}`).checked = !isCompleted;
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error al actualizar el estado del evento');
+            document.getElementById(`evento${eventoId}`).checked = !isCompleted;
+        });
+    }
+    
+    function deleteNota(notaId) {
+        if (confirm('¿Estás seguro de que deseas eliminar esta nota?')) {
+            fetch(`/admin/api/notas/${notaId}`, {
+                method: 'DELETE'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    window.location.reload();
+                } else {
+                    alert('Error al eliminar la nota');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error al eliminar la nota');
+            });
+        }
+    }
+    
+    function deleteEvento(eventoId) {
+        if (confirm('¿Estás seguro de que deseas eliminar este evento?')) {
+            fetch(`/admin/api/eventos/${eventoId}`, {
+                method: 'DELETE'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    window.location.reload();
+                } else {
+                    alert('Error al eliminar el evento');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error al eliminar el evento');
+            });
+        }
+    }
+</script>
+{% endblock %}

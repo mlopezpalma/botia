@@ -1,0 +1,133 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Calendario | Panel de Administración{% endblock %}
+
+{% block extra_css %}
+<link href='https://cdn.jsdelivr.net/npm/fullcalendar@5.10.1/main.min.css' rel='stylesheet' />
+<style>
+    .fc-event {
+        cursor: pointer;
+    }
+    
+    .modal-body p {
+        margin-bottom: 0.5rem;
+    }
+    
+    .modal-body .label {
+        font-weight: bold;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Calendario</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <a href="{{ url_for('admin.nueva_cita') }}" class="btn btn-sm btn-outline-primary">
+                <i class="fas fa-calendar-plus"></i> Nueva Cita
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-body">
+        <div id="calendar"></div>
+    </div>
+</div>
+
+<!-- Modal para ver detalles del evento -->
+<div class="modal fade" id="eventModal" tabindex="-1" aria-labelledby="eventModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="eventModalLabel">Detalles del evento</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="eventDetails">
+                <!-- Aquí se cargarán los detalles del evento -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                <button type="button" class="btn btn-primary" id="btnEditEvent">Editar</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src='https://cdn.jsdelivr.net/npm/fullcalendar@5.10.1/main.min.js'></script>
+<script src='https://cdn.jsdelivr.net/npm/fullcalendar@5.10.1/locales-all.min.js'></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const calendarEl = document.getElementById('calendar');
+        const eventModal = new bootstrap.Modal(document.getElementById('eventModal'));
+        const eventDetails = document.getElementById('eventDetails');
+        const btnEditEvent = document.getElementById('btnEditEvent');
+        
+        const calendar = new FullCalendar.Calendar(calendarEl, {
+            locale: 'es',
+            initialView: 'dayGridMonth',
+            headerToolbar: {
+                left: 'prev,next today',
+                center: 'title',
+                right: 'dayGridMonth,timeGridWeek,timeGridDay'
+            },
+            events: "{{ url_for('admin.api_eventos') }}",
+            eventClick: function(info) {
+                // Mostrar detalles del evento en el modal
+                const event = info.event;
+                const extProps = event.extendedProps;
+                
+                document.getElementById('eventModalLabel').textContent = event.title;
+                
+                let detailsHtml = `
+                    <p><span class="label">Fecha:</span> ${event.start.toLocaleDateString()}</p>
+                `;
+                
+                if (event.start.toTimeString() !== '00:00:00 GMT+0000 (Coordinated Universal Time)') {
+                    detailsHtml += `<p><span class="label">Hora:</span> ${event.start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>`;
+                }
+                
+                if (extProps.description) {
+                    detailsHtml += `<p><span class="label">Descripción:</span> ${extProps.description}</p>`;
+                }
+                
+                if (extProps.type === 'appointment') {
+                    detailsHtml += `
+                        <p><span class="label">Tipo:</span> Cita</p>
+                        <p><span class="label">Estado:</span> ${extProps.status || 'Pendiente'}</p>
+                        <p><span class="label">Cliente:</span> ${extProps.client?.name || ''}</p>
+                        <p><span class="label">Email:</span> ${extProps.client?.email || ''}</p>
+                        <p><span class="label">Teléfono:</span> ${extProps.client?.phone || ''}</p>
+                    `;
+                } else {
+                    detailsHtml += `
+                        <p><span class="label">Tipo:</span> Evento crítico</p>
+                        <p><span class="label">Estado:</span> ${extProps.completed ? 'Completado' : 'Pendiente'}</p>
+                        <p><span class="label">Proyecto:</span> ${extProps.project?.title || ''}</p>
+                        <p><span class="label">Cliente:</span> ${extProps.client?.name || ''}</p>
+                    `;
+                }
+                
+                eventDetails.innerHTML = detailsHtml;
+                
+                // Configurar botón de edición
+                btnEditEvent.onclick = function() {
+                    if (extProps.type === 'appointment') {
+                        window.location.href = `/admin/citas/editar/${event.id.replace('cita_', '')}`;
+                    } else {
+                        window.location.href = `/admin/eventos/editar/${event.id.replace('evento_', '')}`;
+                    }
+                };
+                
+                eventModal.show();
+            }
+        });
+        
+        calendar.render();
+    });
+</script>
+{% endblock %}

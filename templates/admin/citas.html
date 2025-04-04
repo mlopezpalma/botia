@@ -1,0 +1,106 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Citas | Panel de Administración{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Citas</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <a href="{{ url_for('admin.nueva_cita') }}" class="btn btn-sm btn-primary">
+            <i class="fas fa-calendar-plus"></i> Nueva Cita
+        </a>
+    </div>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-body">
+        <div class="row mb-3">
+            <div class="col-md-6">
+                <div class="input-group">
+                    <input type="text" class="form-control" id="searchCita" placeholder="Buscar cita...">
+                    <button class="btn btn-outline-secondary" type="button" id="btnSearch">
+                        <i class="fas fa-search"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="table-responsive">
+            <table class="table table-striped table-hover">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Fecha</th>
+                        <th>Hora</th>
+                        <th>Cliente</th>
+                        <th>Tipo</th>
+                        <th>Tema</th>
+                        <th>Estado</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for cita in citas %}
+                    <tr>
+                        <td>{{ cita.id }}</td>
+                        <td>{{ cita.fecha }}</td>
+                        <td>{{ cita.hora }}</td>
+                        <td>{{ cita.cliente_nombre }}</td>
+                        <td>{{ cita.tipo }}</td>
+                        <td>{{ cita.tema }}</td>
+                        <td>
+                            <span class="badge {% if cita.estado == 'pendiente' %}bg-warning{% elif cita.estado == 'confirmada' %}bg-success{% elif cita.estado == 'cancelada' %}bg-danger{% else %}bg-secondary{% endif %}">
+                                {{ cita.estado | capitalize }}
+                            </span>
+                        </td>
+                        <td>
+                            <div class="btn-group">
+                                <a href="{{ url_for('admin.ver_cita', cita_id=cita.id) }}" class="btn btn-sm btn-outline-primary">
+                                    <i class="fas fa-eye"></i>
+                                </a>
+                                <a href="{{ url_for('admin.editar_cita', cita_id=cita.id) }}" class="btn btn-sm btn-outline-secondary">
+                                    <i class="fas fa-edit"></i>
+                                </a>
+                            </div>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="8" class="text-center">No hay citas registradas</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const searchInput = document.getElementById('searchCita');
+        const tableRows = document.querySelectorAll('tbody tr');
+        
+        searchInput.addEventListener('keyup', function() {
+            const searchTerm = searchInput.value.toLowerCase();
+            
+            tableRows.forEach(row => {
+                const fecha = row.cells[1]?.textContent.toLowerCase() || '';
+                const hora = row.cells[2]?.textContent.toLowerCase() || '';
+                const cliente = row.cells[3]?.textContent.toLowerCase() || '';
+                const tipo = row.cells[4]?.textContent.toLowerCase() || '';
+                const tema = row.cells[5]?.textContent.toLowerCase() || '';
+                
+                if (fecha.includes(searchTerm) || hora.includes(searchTerm) || 
+                    cliente.includes(searchTerm) || tipo.includes(searchTerm) ||
+                    tema.includes(searchTerm)) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        });
+    });
+</script>
+{% endblock %}
