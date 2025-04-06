@@ -632,3 +632,276 @@ class DatabaseManager:
         
         conn.close()
         return events
+    # Métodos adicionales a agregar en la clase DatabaseManager en db_manager.py
+
+    def get_cliente_by_id(self, cliente_id):
+        """
+        Obtiene un cliente por su ID.
+    
+        Args:
+            cliente_id: ID del cliente
+        
+        Returns:
+            Diccionario con los datos del cliente o None si no se encuentra
+        """
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+    
+        cursor.execute("SELECT * FROM clientes WHERE id=?", (cliente_id,))
+        cliente = cursor.fetchone()
+    
+        conn.close()
+    
+        if cliente:
+            return {
+                'id': cliente[0],
+                'nombre': cliente[1],
+                'email': cliente[2],
+                'telefono': cliente[3],
+                'fecha_registro': cliente[4],
+                'notas': cliente[5]
+            }
+        return None
+
+    def delete_proyecto(self, proyecto_id):
+        """
+        Elimina un proyecto y sus datos relacionados.
+    
+        Args:
+            proyecto_id: ID del proyecto a eliminar
+        """
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+    
+        # Eliminar notas relacionadas
+        cursor.execute("DELETE FROM notas_proyecto WHERE proyecto_id=?", (proyecto_id,))
+    
+        # Eliminar eventos relacionados
+        cursor.execute("DELETE FROM eventos_proyecto WHERE proyecto_id=?", (proyecto_id,))
+    
+        # Eliminar el proyecto
+        cursor.execute("DELETE FROM proyectos WHERE id=?", (proyecto_id,))
+    
+        conn.commit()
+        conn.close()
+
+    def delete_nota_proyecto(self, nota_id):
+        """
+        Elimina una nota de proyecto.
+    
+        Args:
+            nota_id: ID de la nota a eliminar
+        """
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+    
+        # Obtener proyecto_id para actualizarlo después
+        cursor.execute("SELECT proyecto_id FROM notas_proyecto WHERE id=?", (nota_id,))
+        result = cursor.fetchone()
+        if result:
+            proyecto_id = result[0]
+        
+            # Eliminar la nota
+            cursor.execute("DELETE FROM notas_proyecto WHERE id=?", (nota_id,))
+        
+            # Actualizar última fecha de actualización del proyecto
+            from datetime import datetime
+            cursor.execute(
+                "UPDATE proyectos SET ultima_actualizacion=? WHERE id=?",
+                (datetime.now().strftime("%Y-%m-%d"), proyecto_id)
+            )
+    
+        conn.commit()
+        conn.close()
+
+    def delete_evento_proyecto(self, evento_id):
+        """
+        Elimina un evento crítico de proyecto.
+    
+        Args:
+            evento_id: ID del evento a eliminar
+        """
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+    
+        # Obtener proyecto_id para actualizarlo después
+        cursor.execute("SELECT proyecto_id FROM eventos_proyecto WHERE id=?", (evento_id,))
+        result = cursor.fetchone()
+        if result:
+            proyecto_id = result[0]
+        
+            # Eliminar el evento
+            cursor.execute("DELETE FROM eventos_proyecto WHERE id=?", (evento_id,))
+        
+            # Actualizar última fecha de actualización del proyecto
+            from datetime import datetime
+            cursor.execute(
+                "UPDATE proyectos SET ultima_actualizacion=? WHERE id=?",
+                (datetime.now().strftime("%Y-%m-%d"), proyecto_id)
+            )
+    
+        conn.commit()
+        conn.close()
+
+    def get_all_citas(self):
+        """
+        Obtiene todas las citas con información de los clientes.
+    
+        Returns:
+            Lista de diccionarios con información de las citas
+        """
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+    
+        cursor.execute("""
+        SELECT c.id, c.tipo, c.fecha, c.hora, c.tema, c.estado, c.fecha_creacion,
+               cl.id as cliente_id, cl.nombre as cliente_nombre, cl.email as cliente_email, cl.telefono as cliente_telefono
+        FROM citas c
+        JOIN clientes cl ON c.cliente_id = cl.id
+        ORDER BY c.fecha DESC, c.hora
+        """)
+    
+        citas_raw = cursor.fetchall()
+    
+        conn.close()
+    
+        citas = []
+        for c in citas_raw:
+            citas.append({
+                'id': c[0],
+                'tipo': c[1],
+                'fecha': c[2],
+                'hora': c[3],
+                'tema': c[4],
+                'estado': c[5],
+                'fecha_creacion': c[6],
+                'cliente_nombre': c[8],
+                'cliente_email': c[9],
+                'cliente_telefono': c[10],
+                'cliente': {
+                    'id': c[7],
+                    'nombre': c[8],
+                    'email': c[9],
+                    'telefono': c[10]
+                }
+            })
+    
+        return citas
+
+    def get_cita(self, cita_id):
+        """
+        Obtiene una cita por su ID.
+    
+        Args:
+            cita_id: ID de la cita
+        
+        Returns:
+            Diccionario con los datos de la cita o None si no se encuentra
+        """
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+    
+        cursor.execute("""
+        SELECT c.id, c.tipo, c.fecha, c.hora, c.tema, c.estado, c.fecha_creacion,
+               cl.id as cliente_id, cl.nombre as cliente_nombre, cl.email as cliente_email, cl.telefono as cliente_telefono
+        FROM citas c
+        JOIN clientes cl ON c.cliente_id = cl.id
+        WHERE c.id = ?
+        """, (cita_id,))
+    
+        cita = cursor.fetchone()
+    
+        conn.close()
+    
+        if cita:
+            return {
+                'id': cita[0],
+                'tipo': cita[1],
+                'fecha': cita[2],
+                'hora': cita[3],
+                'tema': cita[4],
+                'estado': cita[5],
+                'fecha_creacion': cita[6],
+                'cliente': {
+                    'id': cita[7],
+                    'nombre': cita[8],
+                    'email': cita[9],
+                    'telefono': cita[10]
+                }
+            }
+        return None
+
+    def update_cita(self, cita_id, **kwargs):
+        """
+        Actualiza una cita existente.
+    
+        Args:
+            cita_id: ID de la cita
+            **kwargs: Campos a actualizar (tipo, fecha, hora, tema, estado)
+        """
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+    
+        # Actualizar solo los campos proporcionados
+        set_clause = []
+        values = []
+    
+        for key, value in kwargs.items():
+            if value is not None:  # Solo actualizar si el valor no es None
+                set_clause.append(f"{key}=?")
+                values.append(value)
+    
+        if set_clause:
+            # Añadir ID de la cita
+            values.append(cita_id)
+        
+            query = f"UPDATE citas SET {', '.join(set_clause)} WHERE id=?"
+            cursor.execute(query, values)
+        
+            conn.commit()
+    
+        conn.close()
+
+    def delete_cita(self, cita_id):
+        """
+        Elimina una cita.
+    
+        Args:
+            cita_id: ID de la cita a eliminar
+        """
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+    
+        # Eliminar la cita
+        cursor.execute("DELETE FROM citas WHERE id=?", (cita_id,))
+    
+        conn.commit()
+        conn.close()
+    
+    def update_cliente(self, cliente_id, nombre, email, telefono, notas=""):
+        """
+        Actualiza la información de un cliente existente.
+    
+        Args:
+            cliente_id: ID del cliente a actualizar
+            nombre: Nombre completo del cliente
+            email: Email del cliente
+           telefono: Teléfono del cliente
+            notas: Notas adicionales sobre el cliente
+        """
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+    
+        try:
+            cursor.execute(
+                "UPDATE clientes SET nombre=?, email=?, telefono=?, notas=? WHERE id=?",
+                (nombre, email, telefono, notas, cliente_id)
+            )
+        
+            conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error al actualizar cliente: {str(e)}")
+            return False
+        finally:
+            conn.close()

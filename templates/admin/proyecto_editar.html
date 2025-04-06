@@ -1,0 +1,70 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Editar Proyecto | Panel de Administración{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Editar Proyecto</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <a href="{{ url_for('admin.ver_proyecto', proyecto_id=proyecto.id) }}" class="btn btn-sm btn-outline-secondary">
+            <i class="fas fa-arrow-left"></i> Volver
+        </a>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <form method="post">
+                    <div class="mb-3">
+                        <label for="cliente" class="form-label">Cliente</label>
+                        <input type="text" class="form-control" id="cliente" value="{{ proyecto.cliente_nombre }}" disabled>
+                    </div>
+                    <div class="mb-3">
+                        <label for="titulo" class="form-label">Título del proyecto *</label>
+                        <input type="text" class="form-control" id="titulo" name="titulo" value="{{ proyecto.titulo }}" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="descripcion" class="form-label">Descripción</label>
+                        <textarea class="form-control" id="descripcion" name="descripcion" rows="3">{{ proyecto.descripcion }}</textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label for="abogado" class="form-label">Abogado asignado</label>
+                        <input type="text" class="form-control" id="abogado" name="abogado" value="{{ proyecto.abogado }}">
+                    </div>
+                    <div class="mb-3">
+                        <label for="estado" class="form-label">Estado</label>
+                        <select class="form-select" id="estado" name="estado">
+                            <option value="nuevo" {% if proyecto.estado == 'nuevo' %}selected{% endif %}>Nuevo</option>
+                            <option value="pendiente_documentacion" {% if proyecto.estado == 'pendiente_documentacion' %}selected{% endif %}>Pendiente de documentación</option>
+                            <option value="en_proceso" {% if proyecto.estado == 'en_proceso' %}selected{% endif %}>En proceso</option>
+                            <option value="en_espera" {% if proyecto.estado == 'en_espera' %}selected{% endif %}>En espera</option>
+                            <option value="finalizado" {% if proyecto.estado == 'finalizado' %}selected{% endif %}>Finalizado</option>
+                        </select>
+                    </div>
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary">Guardar Cambios</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card shadow-sm">
+            <div class="card-header bg-light">
+                <h5 class="card-title mb-0">Información</h5>
+            </div>
+            <div class="card-body">
+                <p>Modifique los datos del proyecto según sea necesario.</p>
+                <p>Los campos marcados con * son obligatorios.</p>
+                <p>Datos adicionales:</p>
+                <ul>
+                    <li>Fecha de inicio: {{ proyecto.fecha_inicio }}</li>
+                    <li>Última actualización: {{ proyecto.ultima_actualizacion }}</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

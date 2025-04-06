@@ -1,0 +1,126 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Detalles de Cliente | Panel de Administración{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">{{ cliente.nombre }}</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <a href="{{ url_for('admin.editar_cliente', cliente_id=cliente.id) }}" class="btn btn-sm btn-outline-secondary">
+                <i class="fas fa-edit"></i> Editar
+            </a>
+            <a href="{{ url_for('admin.clientes') }}" class="btn btn-sm btn-outline-secondary">
+                <i class="fas fa-arrow-left"></i> Volver
+            </a>
+        </div>
+        <a href="{{ url_for('admin.nueva_cita') }}?cliente_id={{ cliente.id }}" class="btn btn-sm btn-primary">
+            <i class="fas fa-calendar-plus"></i> Nueva Cita
+        </a>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card mb-4 shadow-sm">
+            <div class="card-header">
+                <h5 class="mb-0">Información de Contacto</h5>
+            </div>
+            <div class="card-body">
+                <p><strong>Nombre:</strong> {{ cliente.nombre }}</p>
+                <p><strong>Email:</strong> <a href="mailto:{{ cliente.email }}">{{ cliente.email }}</a></p>
+                <p><strong>Teléfono:</strong> <a href="tel:{{ cliente.telefono }}">{{ cliente.telefono }}</a></p>
+                <p><strong>Fecha de Registro:</strong> {{ cliente.fecha_registro }}</p>
+                {% if cliente.notas %}
+                <hr>
+                <h6>Notas:</h6>
+                <p>{{ cliente.notas }}</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card mb-4 shadow-sm">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Proyectos</h5>
+                <a href="{{ url_for('admin.nuevo_proyecto') }}?cliente_id={{ cliente.id }}" class="btn btn-sm btn-outline-primary">
+                    <i class="fas fa-plus"></i> Nuevo Proyecto
+                </a>
+            </div>
+            <div class="card-body">
+                <div class="list-group">
+                    {% for proyecto in proyectos %}
+                    <a href="{{ url_for('admin.ver_proyecto', proyecto_id=proyecto.id) }}" class="list-group-item list-group-item-action flex-column align-items-start">
+                        <div class="d-flex w-100 justify-content-between">
+                            <h6 class="mb-1">{{ proyecto.titulo }}</h6>
+                            <small class="text-muted">{{ proyecto.ultima_actualizacion }}</small>
+                        </div>
+                        <p class="mb-1">{{ proyecto.descripcion|truncate(100) }}</p>
+                        <small class="badge bg-{% if proyecto.estado == 'finalizado' %}success{% elif proyecto.estado == 'nuevo' %}primary{% else %}warning{% endif %}">
+                            {{ proyecto.estado | capitalize }}
+                        </small>
+                    </a>
+                    {% else %}
+                    <p class="text-center text-muted">No hay proyectos registrados</p>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">Citas</h5>
+        <a href="{{ url_for('admin.nueva_cita') }}?cliente_id={{ cliente.id }}" class="btn btn-sm btn-outline-primary">
+            <i class="fas fa-plus"></i> Nueva Cita
+        </a>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-striped table-hover">
+                <thead>
+                    <tr>
+                        <th>Fecha</th>
+                        <th>Hora</th>
+                        <th>Tipo</th>
+                        <th>Tema</th>
+                        <th>Estado</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for cita in citas %}
+                    <tr>
+                        <td>{{ cita.fecha }}</td>
+                        <td>{{ cita.hora }}</td>
+                        <td>{{ cita.tipo | capitalize }}</td>
+                        <td>{{ cita.tema }}</td>
+                        <td>
+                            <span class="badge bg-{% if cita.estado == 'pendiente' %}warning{% elif cita.estado == 'confirmada' %}success{% elif cita.estado == 'cancelada' %}danger{% else %}secondary{% endif %}">
+                                {{ cita.estado | capitalize }}
+                            </span>
+                        </td>
+                        <td>
+                            <div class="btn-group">
+                                <a href="{{ url_for('admin.ver_cita', cita_id=cita.id) }}" class="btn btn-sm btn-outline-primary">
+                                    <i class="fas fa-eye"></i>
+                                </a>
+                                <a href="{{ url_for('admin.editar_cita', cita_id=cita.id) }}" class="btn btn-sm btn-outline-secondary">
+                                    <i class="fas fa-edit"></i>
+                                </a>
+                            </div>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="text-center">No hay citas registradas</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

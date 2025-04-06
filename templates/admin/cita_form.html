@@ -1,0 +1,91 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Nueva Cita | Panel de Administración{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Nueva Cita</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <a href="{{ url_for('admin.citas') }}" class="btn btn-sm btn-outline-secondary">
+            <i class="fas fa-arrow-left"></i> Volver a citas
+        </a>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <form method="post">
+                    <div class="mb-3">
+                        <label for="cliente_id" class="form-label">Cliente *</label>
+                        <select class="form-select" id="cliente_id" name="cliente_id" required>
+                            <option value="">Seleccionar cliente</option>
+                            {% for cliente in clientes %}
+                            <option value="{{ cliente.id }}" {% if request.args.get('cliente_id')|int == cliente.id %}selected{% endif %}>
+                                {{ cliente.nombre }} ({{ cliente.email }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="tipo" class="form-label">Tipo de cita *</label>
+                        <select class="form-select" id="tipo" name="tipo" required>
+                            <option value="presencial">Presencial</option>
+                            <option value="videoconferencia">Videoconferencia</option>
+                            <option value="telefonica">Telefónica</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="fecha" class="form-label">Fecha *</label>
+                        <input type="date" class="form-control" id="fecha" name="fecha" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="hora" class="form-label">Hora *</label>
+                        <input type="time" class="form-control" id="hora" name="hora" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="tema" class="form-label">Tema</label>
+                        <input type="text" class="form-control" id="tema" name="tema">
+                    </div>
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary">Crear Cita</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card shadow-sm">
+            <div class="card-header bg-light">
+                <h5 class="card-title mb-0">Información</h5>
+            </div>
+            <div class="card-body">
+                <p>Complete el formulario con los datos de la nueva cita.</p>
+                <p>Los campos marcados con * son obligatorios.</p>
+                <p><strong>Duración por tipo:</strong></p>
+                <ul>
+                    <li>Presencial: 30 minutos</li>
+                    <li>Videoconferencia: 25 minutos</li>
+                    <li>Telefónica: 10 minutos</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Establecer la fecha mínima como hoy
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('fecha').min = today;
+        
+        // Si no hay fecha seleccionada, establecer por defecto hoy
+        if (!document.getElementById('fecha').value) {
+            document.getElementById('fecha').value = today;
+        }
+    });
+</script>
+{% endblock %}

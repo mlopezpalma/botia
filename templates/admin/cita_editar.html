@@ -1,0 +1,79 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Editar Cita | Panel de Administración{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Editar Cita</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <a href="{{ url_for('admin.ver_cita', cita_id=cita.id) }}" class="btn btn-sm btn-outline-secondary">
+            <i class="fas fa-arrow-left"></i> Volver
+        </a>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <form method="post">
+                    <div class="mb-3">
+                        <label for="cliente" class="form-label">Cliente</label>
+                        <input type="text" class="form-control" id="cliente" value="{{ cita.cliente.nombre }}" disabled>
+                    </div>
+                    <div class="mb-3">
+                        <label for="tipo" class="form-label">Tipo de cita *</label>
+                        <select class="form-select" id="tipo" name="tipo" required>
+                            <option value="presencial" {% if cita.tipo == 'presencial' %}selected{% endif %}>Presencial</option>
+                            <option value="videoconferencia" {% if cita.tipo == 'videoconferencia' %}selected{% endif %}>Videoconferencia</option>
+                            <option value="telefonica" {% if cita.tipo == 'telefonica' %}selected{% endif %}>Telefónica</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="fecha" class="form-label">Fecha *</label>
+                        <input type="date" class="form-control" id="fecha" name="fecha" value="{{ cita.fecha }}" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="hora" class="form-label">Hora *</label>
+                        <input type="time" class="form-control" id="hora" name="hora" value="{{ cita.hora }}" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="tema" class="form-label">Tema</label>
+                        <input type="text" class="form-control" id="tema" name="tema" value="{{ cita.tema }}">
+                    </div>
+                    <div class="mb-3">
+                        <label for="estado" class="form-label">Estado</label>
+                        <select class="form-select" id="estado" name="estado">
+                            <option value="pendiente" {% if cita.estado == 'pendiente' %}selected{% endif %}>Pendiente</option>
+                            <option value="confirmada" {% if cita.estado == 'confirmada' %}selected{% endif %}>Confirmada</option>
+                            <option value="cancelada" {% if cita.estado == 'cancelada' %}selected{% endif %}>Cancelada</option>
+                            <option value="completada" {% if cita.estado == 'completada' %}selected{% endif %}>Completada</option>
+                        </select>
+                    </div>
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary">Guardar Cambios</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card shadow-sm">
+            <div class="card-header bg-light">
+                <h5 class="card-title mb-0">Información</h5>
+            </div>
+            <div class="card-body">
+                <p>Modifique los datos de la cita según sea necesario.</p>
+                <p>Los campos marcados con * son obligatorios.</p>
+                <p><strong>Duración por tipo:</strong></p>
+                <ul>
+                    <li>Presencial: 30 minutos</li>
+                    <li>Videoconferencia: 25 minutos</li>
+                    <li>Telefónica: 10 minutos</li>
+                </ul>
+                <p>Creada el: {{ cita.fecha_creacion }}</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

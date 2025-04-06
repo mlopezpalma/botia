@@ -1,0 +1,141 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Detalle de Cita | Panel de Administración{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Cita: {{ cita.fecha }} - {{ cita.hora }}</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <a href="{{ url_for('admin.editar_cita', cita_id=cita.id) }}" class="btn btn-sm btn-outline-secondary">
+                <i class="fas fa-edit"></i> Editar
+            </a>
+            <a href="{{ url_for('admin.citas') }}" class="btn btn-sm btn-outline-secondary">
+                <i class="fas fa-arrow-left"></i> Volver
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card mb-4 shadow-sm">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Información de la Cita</h5>
+                <span class="badge bg-{% if cita.estado == 'pendiente' %}warning{% elif cita.estado == 'confirmada' %}success{% elif cita.estado == 'cancelada' %}danger{% else %}secondary{% endif %}">
+                    {{ cita.estado | capitalize }}
+                </span>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <p><strong>Tipo:</strong> {{ cita.tipo | capitalize }}</p>
+                        <p><strong>Fecha:</strong> {{ cita.fecha }}</p>
+                        <p><strong>Hora:</strong> {{ cita.hora }}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <p><strong>Cliente:</strong> {{ cita.cliente.nombre }}</p>
+                        <p><strong>Email:</strong> <a href="mailto:{{ cita.cliente.email }}">{{ cita.cliente.email }}</a></p>
+                        <p><strong>Teléfono:</strong> <a href="tel:{{ cita.cliente.telefono }}">{{ cita.cliente.telefono }}</a></p>
+                    </div>
+                </div>
+                <hr>
+                <div class="mb-3">
+                    <h6>Tema</h6>
+                    {% if cita.tema %}
+                    <p>{{ cita.tema }}</p>
+                    {% else %}
+                    <p class="text-muted">No se ha especificado tema para esta cita.</p>
+                    {% endif %}
+                </div>
+                <hr>
+                <div class="mb-3">
+                    <h6>Información adicional</h6>
+                    <p><strong>Duración:</strong> 
+                        {% if cita.tipo == 'presencial' %}
+                        30 minutos
+                        {% elif cita.tipo == 'videoconferencia' %}
+                        25 minutos
+                        {% elif cita.tipo == 'telefonica' %}
+                        10 minutos
+                        {% endif %}
+                    </p>
+                    <p><strong>Creada el:</strong> {{ cita.fecha_creacion }}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card mb-4 shadow-sm">
+            <div class="card-header">
+                <h5 class="mb-0">Acciones</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <a href="{{ url_for('admin.editar_cita', cita_id=cita.id) }}" class="btn btn-outline-primary">
+                        <i class="fas fa-edit"></i> Editar cita
+                    </a>
+                    <a href="{{ url_for('admin.ver_cliente', cliente_id=cita.cliente.id) }}" class="btn btn-outline-info">
+                        <i class="fas fa-user"></i> Ver cliente
+                    </a>
+                    <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#cancelarCitaModal">
+                        <i class="fas fa-times"></i> Cancelar cita
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4 shadow-sm">
+            <div class="card-header">
+                <h5 class="mb-0">Recordatorio</h5>
+            </div>
+            <div class="card-body">
+                <form action="{{ url_for('admin.enviar_recordatorio', cita_id=cita.id) }}" method="post">
+                    <div class="mb-3">
+                        <label for="tipo_recordatorio" class="form-label">Tipo de recordatorio</label>
+                        <select class="form-select" id="tipo_recordatorio" name="tipo_recordatorio">
+                            <option value="email">Email</option>
+                            <option value="sms">SMS</option>
+                            <option value="ambos">Ambos</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="mensaje_recordatorio" class="form-label">Mensaje personalizado (opcional)</label>
+                        <textarea class="form-control" id="mensaje_recordatorio" name="mensaje_recordatorio" rows="3"></textarea>
+                    </div>
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-paper-plane"></i> Enviar recordatorio
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal para cancelar cita -->
+<div class="modal fade" id="cancelarCitaModal" tabindex="-1" aria-labelledby="cancelarCitaModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="cancelarCitaModalLabel">Cancelar Cita</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>¿Estás seguro de que deseas cancelar esta cita?</p>
+                <p><strong>Fecha:</strong> {{ cita.fecha }}</p>
+                <p><strong>Hora:</strong> {{ cita.hora }}</p>
+                <p><strong>Cliente:</strong> {{ cita.cliente.nombre }}</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                <form action="{{ url_for('admin.cancelar_cita', cita_id=cita.id) }}" method="post">
+                    <button type="submit" class="btn btn-danger">Cancelar Cita</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
