@@ -216,6 +216,7 @@ def identificar_tipo_reunion(texto):
 def identificar_datos_personales(texto):
     """
     Identifica datos personales en el texto proporcionado.
+    Versión mejorada para evitar confusiones con temas o tipos de reunión.
     
     Args:
         texto: Texto del usuario
@@ -240,7 +241,7 @@ def identificar_datos_personales(texto):
         num_telefono = telefono_match.group(0)
         # Restaurar el prefijo +34 si el teléfono empieza con 9, 6 o 7 y no tiene prefijo
         if not num_telefono.startswith('+') and (num_telefono.startswith('9') or num_telefono.startswith('6') or num_telefono.startswith('7')):
-            # Si el teléfono en el test necesita el prefijo pero no lo tiene, añadirlo
+            # Si el teléfono en el texto necesita el prefijo pero no lo tiene, añadirlo
             if "+34" in texto and "+34" not in num_telefono:
                 num_telefono = "+34 " + num_telefono
         datos["telefono"] = num_telefono
@@ -250,39 +251,70 @@ def identificar_datos_personales(texto):
         "no", "si", "sí", "hola", "buenas", "buenos", "quiero", "quisiera", 
         "necesito", "confirmar", "cancelar", "el", "la", "los", "las",
         "presencial", "videoconferencia", "telefonica", "telefónica", 
-        "consulta", "cita", "reunion", "reunión", "agendar", "legal"
+        "consulta", "cita", "reunion", "reunión", "agendar", "legal",
+        "tema", "asunto", "motivo", "porque", "sobre", "para", "como", 
+        "por", "favor", "gracias", "deseo", "prefiero", "mejor"
     ]
     
     # Buscar nombre (patrones mejorados con más casos)
     nombre_patterns = [
-        # Patrones explícitos
-        r'me llamo\s+([A-Za-záéíóúüñÁÉÍÓÚÜÑ]+(?:\s+[A-Za-záéíóúüñÁÉÍÓÚÜÑ]+){0,2})',
-        r'mi nombre es\s+([A-Za-záéíóúüñÁÉÍÓÚÜÑ]+(?:\s+[A-Za-záéíóúüñÁÉÍÓÚÜÑ]+){0,2})',
-        r'soy\s+([A-Za-záéíóúüñÁÉÍÓÚÜÑ]+(?:\s+[A-Za-záéíóúüñÁÉÍÓÚÜÑ]+){0,2})',
-        r'nombre[:\s]+([A-Za-záéíóúüñÁÉÍÓÚÜÑ]+(?:\s+[A-Za-záéíóúüñÁÉÍÓÚÜÑ]+){0,2})'
+        # Patrones explícitos - estos son prioritarios
+        r'me llamo\s+([A-Za-záéíóúüñÁÉÍÓÚÜÑ]+(?:\s+[A-Za-záéíóúüñÁÉÍÓÚÜÑ]+){0,3})',
+        r'mi nombre es\s+([A-Za-záéíóúüñÁÉÍÓÚÜÑ]+(?:\s+[A-Za-záéíóúüñÁÉÍÓÚÜÑ]+){0,3})',
+        r'soy\s+([A-Za-záéíóúüñÁÉÍÓÚÜÑ]+(?:\s+[A-Za-záéíóúüñÁÉÍÓÚÜÑ]+){0,3})',
+        r'nombre[:\s]+([A-Za-záéíóúüñÁÉÍÓÚÜÑ]+(?:\s+[A-Za-záéíóúüñÁÉÍÓÚÜÑ]+){0,3})'
     ]
     
     # Buscar primero patrones explícitos
     for pattern in nombre_patterns:
         nombre_match = re.search(pattern, texto, re.IGNORECASE)
         if nombre_match:
-            nombre_candidato = nombre_match.group(1)
-            # Verificar que no sea una palabra a ignorar
-            if nombre_candidato.lower() not in palabras_a_ignorar:
-                datos["nombre"] = nombre_candidato
-                break
+            nombre_candidato = nombre_match.group(1).strip()
+            
+            # Verificar que no sea una palabra o frase a ignorar
+            palabras_nombre = nombre_candidato.lower().split()
+            if not all(palabra in palabras_a_ignorar for palabra in palabras_nombre):
+                # Verificar que no sea solo una palabra común
+                if len(palabras_nombre) > 1 or (len(palabras_nombre) == 1 and len(palabras_nombre[0]) > 3):
+                    # Filtrar conectores y preposiciones si hay más de 2 palabras
+                    if len(palabras_nombre) > 2:
+                        conectores = ["y", "e", "de", "del", "la", "el", "los", "las"]
+                        # Si el nombre tiene muchas palabras, verificar que no sean solo conectores
+                        if not all(palabra in conectores for palabra in palabras_nombre):
+                            datos["nombre"] = nombre_candidato
+                            break
+                    else:
+                        datos["nombre"] = nombre_candidato
+                        break
     
     # Si no se encontró nombre con los patrones explícitos, buscar nombres propios
     if datos["nombre"] is None:
         # Buscar segmentos que parezcan nombres propios (primera letra mayúscula)
-        posibles_nombres = re.findall(r'(?:^|\s)([A-Z][a-záéíóúüñ]+(?:\s+[A-Z][a-záéíóúüñ]+){0,2})(?:\s|$)', texto)
-        for posible_nombre in posibles_nombres:
-            # Verificar que no sea una palabra común o a ignorar
-            palabras = posible_nombre.lower().split()
-            if not any(palabra in palabras_a_ignorar for palabra in palabras):
-                # Verificar que tiene al menos 3 caracteres para evitar siglas o iniciales sueltas
-                if len(posible_nombre) >= 3:
-                    datos["nombre"] = posible_nombre
+        # Pero solo después de frases como "soy" o "me llamo" si existen
+        for prefix in ["soy ", "me llamo ", "llamame ", "mi nombre es "]:
+            if prefix in texto_lower:
+                # Buscar después del prefijo
+                start_idx = texto_lower.find(prefix) + len(prefix)
+                remaining_text = texto[start_idx:]
+                
+                # Buscar palabras que comiencen con mayúscula
+                posibles_nombres = re.findall(r'(?:^|\s)([A-Z][a-záéíóúüñ]+(?:\s+[A-Z][a-záéíóúüñ]+){0,2})(?:\s|$|,|\.|;)', remaining_text)
+                for posible_nombre in posibles_nombres:
+                    # Verificar que no sea una palabra común o a ignorar
+                    palabras = posible_nombre.lower().split()
+                    if not any(palabra in palabras_a_ignorar for palabra in palabras):
+                        # Verificar que tiene al menos 3 caracteres para evitar siglas o iniciales sueltas
+                        if len(posible_nombre) >= 3:
+                            datos["nombre"] = posible_nombre
+                            break
+                
+                if datos["nombre"]:
                     break
+    
+    # Verificación final: asegurarse de que el nombre identificado no es un tipo de reunión
+    if datos["nombre"]:
+        tipos_reunion = ["presencial", "videoconferencia", "telefonica", "telefónica"]
+        if datos["nombre"].lower() in tipos_reunion:
+            datos["nombre"] = None
     
     return datos

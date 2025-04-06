@@ -18,12 +18,12 @@ def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if not session.get('admin_logged_in'):
-            return redirect(url_for('admin.login', next=request.url))
+            return redirect(url_for('admin.admin_login', next=request.url))
         return f(*args, **kwargs)
     return decorated_function
 
 # Rutas de autenticación
-@admin_bp.route('/login', methods=['GET', 'POST'])
+@admin_bp.route('/login', methods=['GET', 'POST'], endpoint='admin_login')
 def login():
     if request.method == 'POST':
         username = request.form.get('username')
@@ -46,7 +46,9 @@ def login():
 @admin_bp.route('/logout')
 def logout():
     session.pop('admin_logged_in', None)
-    return redirect(url_for('admin.login'))
+    session.pop('admin_id', None)
+    session.pop('admin_role', None)
+    return redirect(url_for('admin.admin_login'))
 
 # Panel principal
 @admin_bp.route('/')
@@ -160,9 +162,19 @@ def api_eventos():
             'start': evento['start'],
             'description': evento['description'],
             'extendedProps': {
-                'type': evento['type']
+                'type': evento['type'],
+                'client': evento['client'],
             }
         }
+        
+        # Añadir propiedades específicas según el tipo de evento
+        if evento['type'] == 'appointment':
+            event['extendedProps']['status'] = evento.get('status', 'pendiente')
+            event['extendedProps']['tema'] = evento.get('description', '')
+        else:
+            event['extendedProps']['completed'] = evento.get('completed', False)
+            if 'project' in evento:
+                event['extendedProps']['project'] = evento['project']
         
         # Diferentes colores según el tipo
         if evento['type'] == 'appointment':
@@ -177,7 +189,6 @@ def api_eventos():
         calendar_events.append(event)
     
     return jsonify(calendar_events)
-
 
 
 # Gestión de citas
@@ -1134,3 +1145,168 @@ def enviar_recordatorio(cita_id):
     except Exception as e:
         flash(f'Error al enviar recordatorio: {str(e)}', 'danger')
         return redirect(url_for('admin.ver_cita', cita_id=cita_id))
+
+# Rutas para gestión de usuarios a añadir en admin_routes.py
+
+@admin_bp.route('/usuarios')
+@login_required
+def usuarios():
+    """Vista para mostrar todos los usuarios del sistema."""
+    try:
+        # Verificar que el usuario actual es admin
+        if session.get('admin_role') != 'admin':
+            flash('No tienes permisos para acceder a esta sección', 'danger')
+            return redirect(url_for('admin.dashboard'))
+        
+        # Obtener todos los usuarios
+        usuarios = db.get_all_usuarios()
+        
+        return render_template('admin/usuarios.html', usuarios=usuarios)
+    except Exception as e:
+        flash(f'Error al cargar usuarios: {str(e)}', 'danger')
+        return redirect(url_for('admin.dashboard'))
+
+@admin_bp.route('/usuarios/nuevo', methods=['GET', 'POST'])
+@login_required
+def nuevo_usuario():
+    """Creación de un nuevo usuario."""
+    try:
+        # Verificar que el usuario actual es admin
+        if session.get('admin_role') != 'admin':
+            flash('No tienes permisos para acceder a esta sección', 'danger')
+            return redirect(url_for('admin.dashboard'))
+        
+        if request.method == 'POST':
+            # Obtener datos del formulario
+            username = request.form.get('username')
+            password = request.form.get('password')
+            nombre = request.form.get('nombre')
+            email = request.form.get('email')
+            role = request.form.get('role', 'user')
+            
+            if not username or not password or not nombre or not email:
+                flash('Todos los campos son obligatorios', 'danger')
+                return render_template('admin/usuario_form.html')
+            
+            # Crear usuario en la base de datos
+            usuario_id = db.add_usuario(
+                username=username,
+                password=password,
+                nombre=nombre,
+                email=email,
+                role=role
+            )
+            
+            if usuario_id:
+                flash('Usuario creado correctamente', 'success')
+                return redirect(url_for('admin.usuarios'))
+            else:
+                flash('Error al crear el usuario. El nombre de usuario o email ya existe.', 'danger')
+                return render_template('admin/usuario_form.html')
+        
+        return render_template('admin/usuario_form.html')
+    except Exception as e:
+        flash(f'Error al crear usuario: {str(e)}', 'danger')
+        return redirect(url_for('admin.usuarios'))
+
+@admin_bp.route('/usuarios/editar/<int:usuario_id>', methods=['GET', 'POST'])
+@login_required
+def editar_usuario(usuario_id):
+    """Edición de un usuario existente."""
+    try:
+        # Verificar que el usuario actual es admin
+        if session.get('admin_role') != 'admin':
+            flash('No tienes permisos para acceder a esta sección', 'danger')
+            return redirect(url_for('admin.dashboard'))
+        
+        # Obtener usuario de la base de datos
+        usuario = db.get_usuario_by_id(usuario_id)
+        if not usuario:
+            flash('Usuario no encontrado', 'danger')
+            return redirect(url_for('admin.usuarios'))
+        
+        if request.method == 'POST':
+            # Obtener datos del formulario
+            username = request.form.get('username')
+            password = request.form.get('password')
+            nombre = request.form.get('nombre')
+            email = request.form.get('email')
+            role = request.form.get('role', 'user')
+            activo = request.form.get('activo') == 'on'
+            
+            if not username or not nombre or not email:
+                flash('Username, nombre y email son obligatorios', 'danger')
+                return render_template('admin/usuario_editar.html', usuario=usuario)
+            
+            # Actualizar usuario en la base de datos
+            kwargs = {
+                'username': username,
+                'nombre': nombre,
+                'email': email,
+                'role': role,
+                'activo': 1 if activo else 0
+            }
+            
+            # Solo actualizar contraseña si se proporciona una nueva
+            if password:
+                kwargs['password'] = password
+            
+            db.update_usuario(usuario_id, **kwargs)
+            
+            flash('Usuario actualizado correctamente', 'success')
+            return redirect(url_for('admin.usuarios'))
+        
+        return render_template('admin/usuario_editar.html', usuario=usuario)
+    except Exception as e:
+        flash(f'Error al editar usuario: {str(e)}', 'danger')
+        return redirect(url_for('admin.usuarios'))
+
+@admin_bp.route('/usuarios/eliminar/<int:usuario_id>', methods=['POST'])
+@login_required
+def eliminar_usuario(usuario_id):
+    """Elimina un usuario del sistema."""
+    try:
+        # Verificar que el usuario actual es admin
+        if session.get('admin_role') != 'admin':
+            flash('No tienes permisos para acceder a esta sección', 'danger')
+            return redirect(url_for('admin.dashboard'))
+        
+        # No permitir eliminar el propio usuario
+        if usuario_id == session.get('admin_id'):
+            flash('No puedes eliminar tu propio usuario', 'danger')
+            return redirect(url_for('admin.usuarios'))
+        
+        # Eliminar usuario
+        result = db.delete_usuario(usuario_id)
+        
+        if result:
+            flash('Usuario eliminado correctamente', 'success')
+        else:
+            flash('No se puede eliminar el último administrador del sistema', 'danger')
+        
+        return redirect(url_for('admin.usuarios'))
+    except Exception as e:
+        flash(f'Error al eliminar usuario: {str(e)}', 'danger')
+        return redirect(url_for('admin.usuarios'))
+
+# Modificar la ruta de login para usar el nuevo sistema de autenticación
+@admin_bp.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        # Autenticar usuario con la base de datos
+        user = db.authenticate_user(username, password)
+        
+        if user:
+            session['admin_logged_in'] = True
+            session['admin_id'] = user['id']
+            session['admin_role'] = user['role']
+            
+            next_page = request.args.get('next', url_for('admin.dashboard'))
+            return redirect(next_page)
+        else:
+            flash('Credenciales incorrectas o usuario desactivado', 'danger')
+    
+    return render_template('admin/login.html')

@@ -10,6 +10,7 @@ class DatabaseManager:
         """Inicializa el gestor de base de datos."""
         self.db_file = db_file
         self.initialize_db()
+        self.initialize_user_tables()
     
     def initialize_db(self):
         """Crea las tablas si no existen."""
@@ -84,7 +85,244 @@ class DatabaseManager:
         
         conn.commit()
         conn.close()
+
+        # Tablas para gestión de usuarios
+    def initialize_user_tables(self):
+        """Crea las tablas de usuarios si no existen."""
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
     
+        # Tabla de usuarios
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS usuarios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            nombre TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            role TEXT NOT NULL DEFAULT 'user',
+            activo INTEGER DEFAULT 1,
+            fecha_creacion TEXT,
+            ultimo_acceso TEXT
+        )
+        ''')
+    
+        # Tabla de roles y permisos
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS roles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre TEXT UNIQUE NOT NULL,
+            descripcion TEXT
+        )
+        ''')
+    
+        # Tabla de permisos
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS permisos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            rol_id INTEGER,
+            permiso TEXT NOT NULL,
+            FOREIGN KEY (rol_id) REFERENCES roles (id)
+        )
+        ''')
+    
+        # Comprobar si hay usuarios administradores
+        cursor.execute("SELECT COUNT(*) FROM usuarios WHERE role='admin'")
+        admin_count = cursor.fetchone()[0]
+    
+        # Si no hay usuarios administradores, crear uno por defecto
+        if admin_count == 0:
+            # Usar bcrypt para el hash de la contraseña
+            import bcrypt
+            import datetime
+        
+            # Contraseña por defecto: admin
+            password = 'admin'
+            salt = bcrypt.gensalt()
+            hashed_password = bcrypt.hashpw(password.encode('utf-8'), salt)
+        
+            fecha_creacion = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+            cursor.execute(
+                "INSERT INTO usuarios (username, password, nombre, email, role, fecha_creacion) VALUES (?, ?, ?, ?, ?, ?)",
+                ('admin', hashed_password.decode('utf-8'), 'Administrador', 'admin@example.com', 'admin', fecha_creacion)
+            )
+        
+            # Insertar roles predefinidos
+            cursor.execute("INSERT OR IGNORE INTO roles (nombre, descripcion) VALUES (?, ?)",
+                          ('admin', 'Administrador con acceso total'))
+            cursor.execute("INSERT OR IGNORE INTO roles (nombre, descripcion) VALUES (?, ?)",
+                          ('gestor', 'Gestión de clientes y citas'))
+            cursor.execute("INSERT OR IGNORE INTO roles (nombre, descripcion) VALUES (?, ?)",
+                          ('abogado', 'Acceso solo a sus casos asignados'))
+            cursor.execute("INSERT OR IGNORE INTO roles (nombre, descripcion) VALUES (?, ?)",
+                          ('recepcion', 'Gestión de citas'))
+    
+        conn.commit()
+        conn.close()
+
+    # Métodos para gestión de usuarios
+    def add_usuario(self, username, password, nombre, email, role='user'):
+        """Añade un nuevo usuario al sistema."""
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+    
+        import bcrypt
+        import datetime
+    
+        salt = bcrypt.gensalt()
+        hashed_password = bcrypt.hashpw(password.encode('utf-8'), salt)
+        fecha_creacion = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+        try:
+            cursor.execute(
+                "INSERT INTO usuarios (username, password, nombre, email, role, fecha_creacion) VALUES (?, ?, ?, ?, ?, ?)",
+                (username, hashed_password.decode('utf-8'), nombre, email, role, fecha_creacion)
+            )
+            conn.commit()
+            usuario_id = cursor.lastrowid
+            return usuario_id
+        except sqlite3.IntegrityError:
+            # Si ya existe un usuario con ese username o email
+            return None
+        finally:
+            conn.close()
+
+    def authenticate_user(self, username, password):
+        """Autentica un usuario con su username y password."""
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+    
+        import bcrypt
+        import datetime
+    
+        cursor.execute("SELECT id, password, role, activo FROM usuarios WHERE username=?", (username,))
+        user = cursor.fetchone()
+    
+        if user and user[3] == 1:  # Verificar que la cuenta está activa
+            stored_password = user[1]
+            # Verificar la contraseña
+            if bcrypt.checkpw(password.encode('utf-8'), stored_password.encode('utf-8')):
+                # Actualizar último acceso
+                ultimo_acceso = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                cursor.execute("UPDATE usuarios SET ultimo_acceso=? WHERE id=?", (ultimo_acceso, user[0]))
+                conn.commit()
+            
+                conn.close()
+                return {"id": user[0], "role": user[2]}
+    
+        conn.close()
+        return None
+
+    def get_all_usuarios(self):
+        """Obtiene todos los usuarios del sistema."""
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+    
+        cursor.execute("SELECT id, username, nombre, email, role, activo, fecha_creacion, ultimo_acceso FROM usuarios")
+        usuarios_raw = cursor.fetchall()
+    
+        conn.close()
+    
+        usuarios = []
+        for u in usuarios_raw:
+            usuarios.append({   
+                'id': u[0],
+                'username': u[1],
+                'nombre': u[2],
+                'email': u[3],
+                'role': u[4],
+                'activo': bool(u[5]),
+                'fecha_creacion': u[6],
+                'ultimo_acceso': u[7]
+            })
+    
+        return usuarios
+
+    def update_usuario(self, usuario_id, **kwargs):
+        """Actualiza un usuario existente."""
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+    
+        # Actualizar solo los campos proporcionados
+        set_clause = []
+        values = []
+    
+        # Manejar contraseña por separado
+        if 'password' in kwargs:
+            import bcrypt
+            password = kwargs.pop('password')
+            salt = bcrypt.gensalt()
+            hashed_password = bcrypt.hashpw(password.encode('utf-8'), salt)
+            set_clause.append("password=?")
+            values.append(hashed_password.decode('utf-8'))
+    
+        for key, value in kwargs.items():
+            set_clause.append(f"{key}=?")
+            values.append(value)
+    
+        # Añadir ID del usuario
+        values.append(usuario_id)
+    
+        query = f"UPDATE usuarios SET {', '.join(set_clause)} WHERE id=?"
+        cursor.execute(query, values)
+    
+        conn.commit()
+        conn.close()
+    
+        return True
+
+    def get_usuario_by_id(self, usuario_id):
+        """Obtiene un usuario por su ID."""
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+    
+        cursor.execute("SELECT id, username, nombre, email, role, activo, fecha_creacion, ultimo_acceso FROM usuarios WHERE id=?", (usuario_id,))
+        usuario = cursor.fetchone()
+    
+        conn.close()
+    
+        if usuario:
+            return {
+                'id': usuario[0],
+                'username': usuario[1],
+                'nombre': usuario[2],
+                'email': usuario[3],
+                'role': usuario[4],
+                'activo': bool(usuario[5]),
+                'fecha_creacion': usuario[6],
+                'ultimo_acceso': usuario[7]
+            }
+        return None
+
+    def delete_usuario(self, usuario_id):
+        """Elimina un usuario del sistema."""
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+    
+        # Por seguridad, verificar que no es el último administrador
+        cursor.execute("SELECT COUNT(*) FROM usuarios WHERE role='admin'")
+        admin_count = cursor.fetchone()[0]
+    
+        cursor.execute("SELECT role FROM usuarios WHERE id=?", (usuario_id,))
+        user_role = cursor.fetchone()
+    
+        if admin_count <= 1 and user_role and user_role[0] == 'admin':
+            # No permitir eliminar el último administrador
+            conn.close()
+            return False
+    
+        # Eliminar el usuario
+        cursor.execute("DELETE FROM usuarios WHERE id=?", (usuario_id,))
+    
+        conn.commit()
+        conn.close()
+    
+        return True
+
+
+
+
     # Métodos para clientes
     def add_cliente(self, nombre, email, telefono, notas=""):
         """Añade un nuevo cliente a la base de datos."""

@@ -48,22 +48,22 @@ class WhatsAppBot:
         """Maneja los mensajes entrantes de WhatsApp."""
         if not self.enabled:
             return jsonify({"error": "La integración de WhatsApp no está configurada correctamente"}), 503
-            
+        
         # Extraer el cuerpo del mensaje y el número de teléfono
         incoming_msg = request.values.get('Body', '').strip()
         sender = request.values.get('From', '').strip()
-        
+    
         print(f"DEBUG - WhatsApp: Mensaje recibido de {sender}: '{incoming_msg}'")
-        
+    
         # Verificar mensajes vacíos
         if not incoming_msg:
             resp = MessagingResponse()
             resp.message("No se recibió ningún mensaje. Por favor, intenta de nuevo.")
             return str(resp)
-        
+    
         # Generar una ID de usuario basada en el número de WhatsApp (sin el prefijo 'whatsapp:')
         user_id = f"whatsapp_{sender.replace('whatsapp:', '')}"
-        
+    
         try:
             # Detectar mensajes de reinicio o despedida
             incoming_msg_lower = incoming_msg.lower().strip()
@@ -74,7 +74,7 @@ class WhatsAppBot:
                         del self.user_states[user_id]
                 except Exception as e:
                     print(f"ERROR - WhatsApp: Error al eliminar estado de usuario: {str(e)}")
-                
+            
                 try:
                     from handlers.conversation import reset_conversacion
                     reset_conversacion(user_id, self.user_states)
@@ -82,53 +82,106 @@ class WhatsAppBot:
                 except Exception as e:
                     print(f"ERROR - WhatsApp: Error al resetear conversación: {str(e)}")
                     mensaje_respuesta = "Conversación reiniciada. ¿En qué puedo ayudarte?"
-                
-                # Enviar respuesta
-                self._send_whatsapp_message_safe(sender, mensaje_respuesta)
-                
-                # Responder usando TwiML
+            
+                # Responder usando TwiML (solo una respuesta)
                 resp = MessagingResponse()
                 resp.message(mensaje_respuesta)
                 return str(resp)
+        
+            # Obtener el estado actual del usuario
+            estado_usuario = self.user_states.get(user_id, {})
+        
+            # Procesamiento especial para respuestas numéricas (selección de menú)
+            if incoming_msg.isdigit() and int(incoming_msg) > 0:
+                print(f"DEBUG - WhatsApp: Detectada respuesta numérica: {incoming_msg}")
             
+                # Obtener el último mensaje enviado al usuario
+                last_response = estado_usuario.get('last_whatsapp_response', '')
+            
+                # Si el último mensaje contenía un menú, extraer las opciones
+                import re
+                menu_match = re.search(r'\[MENU:(.*?)\]', last_response)
+                if menu_match:
+                    opciones = menu_match.group(1).split('|')
+                    opcion_index = int(incoming_msg) - 1
+                
+                    # Verificar que el índice es válido
+                    if 0 <= opcion_index < len(opciones):
+                        # Usar la opción correspondiente como el mensaje
+                        incoming_msg = opciones[opcion_index].strip()
+                        print(f"DEBUG - WhatsApp: Mensaje convertido a: '{incoming_msg}'")
+        
             # Procesar el mensaje utilizando la lógica de conversación existente
             respuesta = generar_respuesta(incoming_msg, user_id, self.user_states)
-            
+        
+            # Guardar la respuesta original para procesamiento futuro
+            if user_id not in self.user_states:
+                self.user_states[user_id] = {}
+            self.user_states[user_id]['last_whatsapp_response'] = respuesta
+        
             # Eliminar cualquier formato especial del mensaje (como [MENU:...])
             respuesta_limpia = self._limpiar_mensaje(respuesta)
-            
-            # Responder utilizando Twilio
-            self._send_whatsapp_message_safe(sender, respuesta_limpia)
-            
-            # Responder utilizando TwiML (para compatibilidad con webhook de Twilio)
+        
+            # Responder utilizando SOLO TwiML (para evitar mensajes duplicados)
             resp = MessagingResponse()
-            resp.message(respuesta_limpia[:1600]) # WhatsApp tiene un límite de ~1600 caracteres
+        
+            # Dividir mensajes largos si es necesario (límite ~1600 caracteres)
+            if len(respuesta_limpia) <= 1600:
+                resp.message(respuesta_limpia)
+            else:
+                # Dividir en partes
+                first_part = respuesta_limpia[:1590] + "... (continúa)"
+                resp.message(first_part)
             
+                # Enviar la segunda parte usando Twilio directamente
+                # Esto solo ocurrirá en casos muy raros donde el mensaje sea muy largo
+                second_part = "(continuación) ... " + respuesta_limpia[1590:]
+                try:
+                    self._send_whatsapp_message_safe(sender, second_part)
+                except Exception as e:
+                    print(f"ERROR - WhatsApp: Error al enviar segunda parte: {str(e)}")
+        
             return str(resp)
         except Exception as e:
             print(f"ERROR - WhatsApp: {str(e)}")
             import traceback
             print(traceback.format_exc())
-            
+        
             # Responder con un mensaje de error
             resp = MessagingResponse()
             resp.message("Lo siento, ha ocurrido un error al procesar tu mensaje. Por favor, intenta de nuevo o escribe 'reiniciar' para comenzar una nueva conversación.")
-            
+        
             return str(resp)
     
     def _limpiar_mensaje(self, mensaje):
-        """Elimina formatos especiales del mensaje para WhatsApp."""
+        """
+        Limpia y formatea el mensaje para WhatsApp, añadiendo índices numéricos a las opciones de menú.
+    
+        Args:
+            mensaje: El mensaje original con posibles indicadores especiales
+        
+        Returns:
+            Mensaje formateado para WhatsApp
+        """
         # Eliminar indicadores especiales
         mensaje = mensaje.replace('[Indicador pequeño]', '')
-        
+    
         # Manejar opciones de menú
         import re
         menu_match = re.search(r'\[MENU:(.*?)\]', mensaje)
         if menu_match:
             opciones = menu_match.group(1).split('|')
-            menu_formateado = "\n\nOpciones disponibles:\n" + "\n".join([f"- {opcion}" for opcion in opciones])
-            mensaje = re.sub(r'\[MENU:.*?\]', menu_formateado, mensaje)
+            menu_formateado = "\n\nOpciones disponibles:\n"
         
+            # Añadir índices numéricos a las opciones
+            for i, opcion in enumerate(opciones, 1):
+                menu_formateado += f"{i}. {opcion.strip()}\n"
+        
+            # Añadir instrucción para usar los índices
+            menu_formateado += "\nResponde con el número de la opción deseada."
+
+            mensaje = re.sub(r'\[MENU:.*?\]', menu_formateado, mensaje)
+    
         return mensaje
     
     def _send_whatsapp_message_safe(self, to, body):

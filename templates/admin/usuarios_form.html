@@ -1,0 +1,111 @@
+{% extends "admin/base.html" %}
+
+{% block title %}{{ 'Editar' if usuario else 'Nuevo' }} Usuario | Panel de Administración{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">{{ 'Editar' if usuario else 'Nuevo' }} Usuario</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <a href="{{ url_for('admin.usuarios') }}" class="btn btn-sm btn-outline-secondary">
+            <i class="fas fa-arrow-left"></i> Volver a usuarios
+        </a>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <form method="post">
+                    <div class="mb-3">
+                        <label for="nombre" class="form-label">Nombre completo *</label>
+                        <input type="text" class="form-control" id="nombre" name="nombre" value="{{ usuario.nombre if usuario else '' }}" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="username" class="form-label">Username *</label>
+                        <input type="text" class="form-control" id="username" name="username" value="{{ usuario.username if usuario else '' }}" required {% if usuario %}readonly{% endif %}>
+                        {% if usuario %}
+                        <small class="form-text text-muted">El nombre de usuario no se puede modificar.</small>
+                        {% endif %}
+                    </div>
+                    <div class="mb-3">
+                        <label for="email" class="form-label">Email *</label>
+                        <input type="email" class="form-control" id="email" name="email" value="{{ usuario.email if usuario else '' }}" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="password" class="form-label">{{ 'Nueva contraseña' if usuario else 'Contraseña *' }}</label>
+                        <input type="password" class="form-control" id="password" name="password" {% if not usuario %}required{% endif %}>
+                        {% if usuario %}
+                        <small class="form-text text-muted">Dejar en blanco para no cambiar la contraseña.</small>
+                        {% endif %}
+                    </div>
+                    {% if usuario %}
+                    <div class="mb-3">
+                        <label for="confirm_password" class="form-label">Confirmar nueva contraseña</label>
+                        <input type="password" class="form-control" id="confirm_password" name="confirm_password">
+                    </div>
+                    {% endif %}
+                    <div class="mb-3">
+                        <label for="role" class="form-label">Rol *</label>
+                        <select class="form-select" id="role" name="role" required>
+                            <option value="admin" {% if usuario and usuario.role == 'admin' %}selected{% endif %}>Administrador</option>
+                            <option value="gestor" {% if usuario and usuario.role == 'gestor' %}selected{% endif %}>Gestor</option>
+                            <option value="abogado" {% if usuario and usuario.role == 'abogado' %}selected{% endif %}>Abogado</option>
+                            <option value="recepcion" {% if usuario and usuario.role == 'recepcion' %}selected{% endif %}>Recepción</option>
+                        </select>
+                    </div>
+                    {% if usuario %}
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="activo" name="activo" {% if usuario.activo %}checked{% endif %}>
+                        <label class="form-check-label" for="activo">Usuario activo</label>
+                    </div>
+                    {% endif %}
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary">{{ 'Guardar Cambios' if usuario else 'Crear Usuario' }}</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card shadow-sm">
+            <div class="card-header bg-light">
+                <h5 class="card-title mb-0">Información</h5>
+            </div>
+            <div class="card-body">
+                <p>{{ 'Modifica' if usuario else 'Completa' }} el formulario con los datos del usuario.</p>
+                <p>Los campos marcados con * son obligatorios.</p>
+                
+                <hr>
+                <h6>Tipos de roles:</h6>
+                <ul>
+                    <li><strong>Administrador:</strong> Acceso total al sistema.</li>
+                    <li><strong>Gestor:</strong> Gestión de clientes, proyectos y citas.</li>
+                    <li><strong>Abogado:</strong> Acceso a casos asignados.</li>
+                    <li><strong>Recepción:</strong> Gestión de citas.</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% if usuario %}
+<script>
+    // Verificar que las contraseñas coincidan
+    document.addEventListener('DOMContentLoaded', function() {
+        const form = document.querySelector('form');
+        const password = document.getElementById('password');
+        const confirmPassword = document.getElementById('confirm_password');
+        
+        form.addEventListener('submit', function(event) {
+            if (password.value !== '' && password.value !== confirmPassword.value) {
+                event.preventDefault();
+                alert('Las contraseñas no coinciden');
+            }
+        });
+    });
+</script>
+{% endif %}
+{% endblock %}

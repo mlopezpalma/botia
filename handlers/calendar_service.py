@@ -67,6 +67,13 @@ def obtener_horarios_disponibles(fecha, tipo_reunion):
     if fecha_dt.weekday() >= 5:  # 5=Sábado, 6=Domingo
         return []
     
+    # Obtener la fecha y hora actual
+    ahora = datetime.datetime.now()
+    
+    # Si la fecha es anterior a hoy, no hay horarios disponibles
+    if fecha_dt.date() < ahora.date():
+        return []
+    
     try:
         # Obtener servicio de calendario
         service = get_google_calendar_service()
@@ -107,7 +114,7 @@ def obtener_horarios_disponibles(fecha, tipo_reunion):
                 fin_dt = fin_dt.replace(tzinfo=None)
                 
                 # Verificar solape con cada horario disponible
-                for hora_str in horarios_completos:
+                for hora_str in horarios_completos.copy():
                     hora, minutos = map(int, hora_str.split(':'))
                     hora_dt = fecha_dt.replace(hour=hora, minute=minutos)
                     duracion_minutos = TIPOS_REUNION[tipo_reunion]["duracion_real"]
@@ -136,20 +143,21 @@ def obtener_horarios_disponibles(fecha, tipo_reunion):
                     horarios_disponibles.append(hora)
         
         # Verificar si la fecha es hoy y excluir horarios pasados
-        es_hoy = fecha_dt.date() == datetime.datetime.now().date()
-        hora_actual = datetime.datetime.now().time()
+        es_hoy = fecha_dt.date() == ahora.date()
         
         if es_hoy:
             horarios_disponibles_filtrados = []
             for hora in horarios_disponibles:
                 # Convertir la hora a objeto time para comparar
                 hora_partes = hora.split(':')
+                hora_obj = int(hora_partes[0])
+                minutos_obj = int(hora_partes[1])
                 
-                # Usar minutos para comparación más sencilla
-                minutos_actuales = hora_actual.hour * 60 + hora_actual.minute + 60  # Añadir 60 min de margen
-                minutos_hora = int(hora_partes[0]) * 60 + int(hora_partes[1])
+                # Convertir a minutos para comparación más sencilla
+                minutos_actuales = ahora.hour * 60 + ahora.minute + 30  # Añadir 30 min de margen mínimo
+                minutos_hora = hora_obj * 60 + minutos_obj
                 
-                # Si es hora futura con margen de 1 hora, incluirla
+                # Si es hora futura con margen mínimo de 30 min, incluirla
                 if minutos_hora > minutos_actuales:
                     horarios_disponibles_filtrados.append(hora)
             
