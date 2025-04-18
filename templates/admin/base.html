@@ -138,3 +138,57 @@
     {% block extra_js %}{% endblock %}
 </body>
 </html>
+
+"""
+<nav id="sidebar" class="col-md-3 col-lg-2 d-md-block sidebar">
+    <div class="position-sticky sidebar-sticky">
+        <ul class="nav flex-column">
+            <li class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'admin.dashboard' %}active{% endif %}" href="{{ url_for('admin.dashboard') }}">
+                    <i class="fas fa-tachometer-alt me-2"></i>Dashboard
+                </a>
+            </li>
+            
+            {% if session.admin_role in ['admin', 'gestor', 'recepcion'] %}
+            <li class="nav-item">
+                <a class="nav-link {% if 'clientes' in request.endpoint %}active{% endif %}" href="{{ url_for('admin.clientes') }}">
+                    <i class="fas fa-users me-2"></i>Clientes
+                </a>
+            </li>
+            {% endif %}
+            
+            {% if session.admin_role in ['admin', 'gestor', 'abogado'] %}
+            <li class="nav-item">
+                <a class="nav-link {% if 'proyectos' in request.endpoint %}active{% endif %}" href="{{ url_for('admin.proyectos') }}">
+                    <i class="fas fa-folder me-2"></i>Expedientes
+                </a>
+            </li>
+            {% endif %}
+            
+            {% if session.admin_role in ['admin', 'gestor', 'recepcion', 'abogado'] %}
+            <li class="nav-item">
+                <a class="nav-link {% if 'citas' in request.endpoint %}active{% endif %}" href="{{ url_for('admin.citas') }}">
+                    <i class="fas fa-calendar-check me-2"></i>Citas
+                </a>
+            </li>
+            {% endif %}
+            
+            {% if session.admin_role in ['admin', 'gestor', 'recepcion', 'abogado'] %}
+            <li class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'admin.calendario' %}active{% endif %}" href="{{ url_for('admin.calendario') }}">
+                    <i class="fas fa-calendar me-2"></i>Calendario
+                </a>
+            </li>
+            {% endif %}
+            
+            {% if session.admin_role == 'admin' %}
+            <li class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'admin.usuarios' %}active{% endif %}" href="{{ url_for('admin.usuarios') }}">
+                    <i class="fas fa-user-cog me-2"></i>Usuarios
+                </a>
+            </li>
+            {% endif %}
+        </ul>
+    </div>
+</nav>
+"""

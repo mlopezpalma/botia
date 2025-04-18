@@ -67,6 +67,10 @@
         const eventDetails = document.getElementById('eventDetails');
         const btnEditEvent = document.getElementById('btnEditEvent');
         
+        // Nuevo: Añadir elementos para la edición directa de eventos
+        const btnRescheduleEvent = document.getElementById('btnRescheduleEvent');
+        const btnCancelEvent = document.getElementById('btnCancelEvent');
+        
         const calendar = new FullCalendar.Calendar(calendarEl, {
             locale: 'es',
             initialView: 'dayGridMonth',
@@ -75,7 +79,9 @@
                 center: 'title',
                 right: 'dayGridMonth,timeGridWeek,timeGridDay'
             },
-            events: "{{ url_for('admin.api_eventos') }}",
+            events: "/admin/api/eventos",
+            selectable: true,
+            editable: true,
             eventClick: function(info) {
                 // Mostrar detalles del evento en el modal
                 const event = info.event;
@@ -103,16 +109,28 @@
                         <p><span class="label">Email:</span> ${extProps.client?.email || ''}</p>
                         <p><span class="label">Teléfono:</span> ${extProps.client?.phone || ''}</p>
                     `;
+                    
+                    // Mostrar botones de reprogramar y cancelar solo para citas
+                    btnRescheduleEvent.style.display = 'block';
+                    btnCancelEvent.style.display = 'block';
                 } else {
                     detailsHtml += `
                         <p><span class="label">Tipo:</span> Evento crítico</p>
                         <p><span class="label">Estado:</span> ${extProps.completed ? 'Completado' : 'Pendiente'}</p>
-                        <p><span class="label">Proyecto:</span> ${extProps.project?.title || ''}</p>
+                        <p><span class="label">Expediente:</span> ${extProps.project?.title || ''}</p>
                         <p><span class="label">Cliente:</span> ${extProps.client?.name || ''}</p>
                     `;
+                    
+                    // Ocultar botones para eventos que no son citas
+                    btnRescheduleEvent.style.display = 'none';
+                    btnCancelEvent.style.display = 'none';
                 }
                 
                 eventDetails.innerHTML = detailsHtml;
+                
+                // Guardar datos del evento para uso posterior
+                eventModal._eventId = event.id;
+                eventModal._eventType = extProps.type;
                 
                 // Configurar botón de edición
                 btnEditEvent.onclick = function() {
@@ -124,10 +142,102 @@
                 };
                 
                 eventModal.show();
+            },
+            dateClick: function(info) {
+                // Al hacer clic en una fecha, abrir formulario para crear nueva cita
+                window.location.href = `/admin/citas/nueva?fecha=${info.dateStr}`;
+            },
+            eventDrop: function(info) {
+                // Se ejecuta cuando un evento es arrastrado a una nueva fecha/hora
+                if (info.event.extendedProps.type === 'appointment') {
+                    const eventId = info.event.id.replace('cita_', '');
+                    const newDate = info.event.start.toISOString().split('T')[0];
+                    const newTime = info.event.start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                    
+                    // Confirmar el cambio
+                    if (confirm(`¿Deseas reprogramar esta cita para el ${newDate} a las ${newTime}?`)) {
+                        // Enviar cambio al servidor
+                        fetch(`/admin/api/citas/${eventId}`, {
+                            method: 'PUT',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                fecha: newDate,
+                                hora: newTime
+                            })
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success) {
+                                alert('Cita reprogramada correctamente');
+                            } else {
+                                alert(`Error: ${data.error}`);
+                                info.revert(); // Revertir el cambio visual
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error:', error);
+                            alert('Error al reprogramar la cita');
+                            info.revert(); // Revertir el cambio visual
+                        });
+                    } else {
+                        info.revert(); // Revertir el cambio visual si se cancela
+                    }
+                } else {
+                    // No permitir mover eventos críticos directamente
+                    alert('Los eventos críticos no se pueden reprogramar directamente. Usa el formulario de edición.');
+                    info.revert();
+                }
             }
         });
         
         calendar.render();
+        
+        // Configurar el botón de reprogramar
+        btnRescheduleEvent.addEventListener('click', function() {
+            const eventId = eventModal._eventId.replace('cita_', '');
+            window.location.href = `/admin/citas/editar/${eventId}?reprogramar=true`;
+        });
+        
+        // Configurar el botón de cancelar cita
+        btnCancelEvent.addEventListener('click', function() {
+            const eventId = eventModal._eventId.replace('cita_', '');
+            if (confirm('¿Estás seguro de que deseas cancelar esta cita?')) {
+                fetch(`/admin/citas/${eventId}/cancelar`, {
+                    method: 'POST'
+                })
+                .then(response => {
+                    if (response.ok) {
+                        alert('Cita cancelada correctamente');
+                        eventModal.hide();
+                        calendar.refetchEvents(); // Actualizar eventos
+                    } else {
+                        alert('Error al cancelar la cita');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Error al cancelar la cita');
+                });
+            }
+        });
     });
 </script>
 {% endblock %}
+
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Calendario</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <form action="{{ url_for('admin.sincronizar_calendario') }}" method="post" class="me-2">
+            <button type="submit" class="btn btn-sm btn-outline-secondary">
+                <i class="fas fa-sync"></i> Sincronizar con Google
+            </button>
+        </form>
+        <div class="btn-group me-2">
+            <a href="{{ url_for('admin.nueva_cita') }}" class="btn btn-sm btn-outline-primary">
+                <i class="fas fa-calendar-plus"></i> Nueva Cita
+            </a>
+        </div>
+    </div>
+</div>

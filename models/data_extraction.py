@@ -253,7 +253,8 @@ def identificar_datos_personales(texto):
         "presencial", "videoconferencia", "telefonica", "telefónica", 
         "consulta", "cita", "reunion", "reunión", "agendar", "legal",
         "tema", "asunto", "motivo", "porque", "sobre", "para", "como", 
-        "por", "favor", "gracias", "deseo", "prefiero", "mejor"
+        "por", "favor", "gracias", "deseo", "prefiero", "mejor",
+        "esta", "este", "ese", "esa", "mi", "un", "una", "unos", "unas"
     ]
     
     # Buscar nombre (patrones mejorados con más casos)
@@ -262,7 +263,9 @@ def identificar_datos_personales(texto):
         r'me llamo\s+([A-Za-záéíóúüñÁÉÍÓÚÜÑ]+(?:\s+[A-Za-záéíóúüñÁÉÍÓÚÜÑ]+){0,3})',
         r'mi nombre es\s+([A-Za-záéíóúüñÁÉÍÓÚÜÑ]+(?:\s+[A-Za-záéíóúüñÁÉÍÓÚÜÑ]+){0,3})',
         r'soy\s+([A-Za-záéíóúüñÁÉÍÓÚÜÑ]+(?:\s+[A-Za-záéíóúüñÁÉÍÓÚÜÑ]+){0,3})',
-        r'nombre[:\s]+([A-Za-záéíóúüñÁÉÍÓÚÜÑ]+(?:\s+[A-Za-záéíóúüñÁÉÍÓÚÜÑ]+){0,3})'
+        r'nombre[:\s]+([A-Za-záéíóúüñÁÉÍÓÚÜÑ]+(?:\s+[A-Za-záéíóúüñÁÉÍÓÚÜÑ]+){0,3})',
+        r'llamarme\s+([A-Za-záéíóúüñÁÉÍÓÚÜÑ]+(?:\s+[A-Za-záéíóúüñÁÉÍÓÚÜÑ]+){0,3})',
+        r'llamo\s+([A-Za-záéíóúüñÁÉÍÓÚÜÑ]+(?:\s+[A-Za-záéíóúüñÁÉÍÓÚÜÑ]+){0,3})'
     ]
     
     # Buscar primero patrones explícitos
@@ -290,15 +293,15 @@ def identificar_datos_personales(texto):
     # Si no se encontró nombre con los patrones explícitos, buscar nombres propios
     if datos["nombre"] is None:
         # Buscar segmentos que parezcan nombres propios (primera letra mayúscula)
-        # Pero solo después de frases como "soy" o "me llamo" si existen
-        for prefix in ["soy ", "me llamo ", "llamame ", "mi nombre es "]:
+        # Especialmente después de frases como "soy" o "me llamo"
+        for prefix in ["soy ", "me llamo ", "llamame ", "mi nombre es ", "llámame ", "llamarme ", " llamo "]:
             if prefix in texto_lower:
                 # Buscar después del prefijo
                 start_idx = texto_lower.find(prefix) + len(prefix)
                 remaining_text = texto[start_idx:]
                 
                 # Buscar palabras que comiencen con mayúscula
-                posibles_nombres = re.findall(r'(?:^|\s)([A-Z][a-záéíóúüñ]+(?:\s+[A-Z][a-záéíóúüñ]+){0,2})(?:\s|$|,|\.|;)', remaining_text)
+                posibles_nombres = re.findall(r'(?:^|\s)([A-Z][a-záéíóúüñ]+(?:\s+[A-Za-záéíóúüñ]+){0,3})(?:\s|$|,|\.|;)', remaining_text)
                 for posible_nombre in posibles_nombres:
                     # Verificar que no sea una palabra común o a ignorar
                     palabras = posible_nombre.lower().split()
@@ -310,6 +313,19 @@ def identificar_datos_personales(texto):
                 
                 if datos["nombre"]:
                     break
+    
+    # Nueva sección: búsqueda de nombres en cualquier parte del texto
+    # Si aún no tenemos nombre, buscar combinaciones de 2-3 palabras que comiencen con mayúscula
+    if datos["nombre"] is None:
+        # Buscar patrones como "Nombre Apellido"
+        nombre_general = re.findall(r'(?:^|\s)([A-Z][a-záéíóúüñ]+(?:\s+[A-Z][a-záéíóúüñ]+){1,2})(?:\s|$|,|\.|;)', texto)
+        
+        for candidato in nombre_general:
+            # Verificar que no contenga palabras a ignorar
+            palabras = candidato.lower().split()
+            if not any(palabra in palabras_a_ignorar for palabra in palabras):
+                datos["nombre"] = candidato
+                break
     
     # Verificación final: asegurarse de que el nombre identificado no es un tipo de reunión
     if datos["nombre"]:

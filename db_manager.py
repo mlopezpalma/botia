@@ -563,10 +563,16 @@ class DatabaseManager:
         """Obtiene los proyectos de un cliente."""
         conn = sqlite3.connect(self.db_file)
         cursor = conn.cursor()
-        
+    
         cursor.execute("SELECT * FROM proyectos WHERE cliente_id=? ORDER BY ultima_actualizacion DESC", (cliente_id,))
         proyectos_raw = cursor.fetchall()
-        
+    
+        # Obtener datos del cliente
+        cursor.execute("SELECT nombre, email FROM clientes WHERE id=?", (cliente_id,))
+        cliente_data = cursor.fetchone()
+        cliente_nombre = cliente_data[0] if cliente_data else "Cliente desconocido"
+        cliente_email = cliente_data[1] if cliente_data else ""
+    
         proyectos = []
         for p in proyectos_raw:
             proyecto_id = p[0]
@@ -579,22 +585,24 @@ class DatabaseManager:
                 'abogado': p[5],
                 'fecha_inicio': p[6],
                 'ultima_actualizacion': p[7],
+                'cliente_nombre': cliente_nombre,
+                'cliente_email': cliente_email,
                 'notas': []
             }
-            
+        
             # Obtener solo las últimas 2 notas para cada proyecto
             cursor.execute("SELECT * FROM notas_proyecto WHERE proyecto_id=? ORDER BY fecha DESC LIMIT 2", (proyecto_id,))
             notas = cursor.fetchall()
-            
+        
             for nota in notas:
                 proyecto['notas'].append({
                     'id': nota[0],
                     'fecha': nota[2],
                     'texto': nota[3]
                 })
-            
-            proyectos.append(proyecto)
         
+            proyectos.append(proyecto)
+    
         conn.close()
         return proyectos
     
@@ -1143,3 +1151,159 @@ class DatabaseManager:
             return False
         finally:
             conn.close()
+
+    # Añadir a db_manager.py
+
+    def get_consultas_sin_expediante(self):
+        """
+        Obtiene todas las citas completadas que aún no tienen expediente asociado.
+        Útil para convertir consultas en expedientes.
+    
+        Returns:
+            Lista de diccionarios con información de las consultas
+        """
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+    
+        try:
+            # Seleccionar citas completadas
+            # Buscamos citas con estado 'completada' o 'confirmada' y fecha pasada
+            fecha_actual = datetime.now().strftime("%Y-%m-%d")
+        
+            query = """
+            SELECT c.id, c.tipo, c.fecha, c.hora, c.tema, c.estado, c.fecha_creacion,
+                   cl.id as cliente_id, cl.nombre as cliente_nombre, cl.email as cliente_email, 
+                   cl.telefono as cliente_telefono, 
+                   CASE WHEN COUNT(p.id) > 0 THEN 1 ELSE 0 END as tiene_expediente
+            FROM citas c
+            JOIN clientes cl ON c.cliente_id = cl.id
+            LEFT JOIN proyectos p ON (
+                p.cliente_id = cl.id AND 
+                p.titulo LIKE '%' || c.tema || '%' AND
+                DATE(p.fecha_inicio) >= DATE(c.fecha)
+            )
+            WHERE (
+                (c.estado = 'completada' OR c.estado = 'confirmada') AND
+                (DATE(c.fecha) < ?)
+            )
+            GROUP BY c.id
+            HAVING tiene_expediente = 0
+            ORDER BY c.fecha DESC
+            """
+        
+            cursor.execute(query, (fecha_actual,))
+            citas_raw = cursor.fetchall()
+        
+            citas = []
+            for c in citas_raw:
+                citas.append({
+                    'id': c[0],
+                    'tipo': c[1],
+                    'fecha': c[2],
+                    'hora': c[3],
+                    'tema': c[4],
+                    'estado': c[5],
+                    'fecha_creacion': c[6],
+                    'cliente_id': c[7],
+                    'cliente_nombre': c[8],
+                    'cliente_email': c[9],
+                    'cliente_telefono': c[10]
+                })
+        
+            return citas
+        except Exception as e:
+            print(f"Error al obtener consultas sin expediente: {str(e)}")
+            return []
+        finally:
+            conn.close()
+
+    def crear_expediente_desde_consulta(self, cita_id, datos_adicionales=None):
+        """
+        Crea un nuevo expediente a partir de una consulta (cita) existente.
+    
+        Args:
+            cita_id: ID de la cita
+            datos_adicionales: Diccionario con datos adicionales para el expediente (opcional)
+                - titulo: Título del expediente (por defecto será el tema de la cita)
+                - descripcion: Descripción del expediente
+                - abogado: Abogado asignado
+                - estado: Estado inicial del expediente (por defecto 'nuevo')
+    
+        Returns:
+            ID del nuevo expediente o None si hay error
+        """
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+    
+        try:
+            # Obtener datos de la cita
+            cursor.execute("""
+            SELECT c.tema, c.fecha, cl.id
+            FROM citas c
+            JOIN clientes cl ON c.cliente_id = cl.id
+            WHERE c.id = ?
+            """, (cita_id,))
+        
+            cita_data = cursor.fetchone()
+            if not cita_data:
+                print(f"No se encontró la cita con ID {cita_id}")
+                return None
+        
+            tema_cita, fecha_cita, cliente_id = cita_data
+        
+            # Crear el expediente
+            titulo = datos_adicionales.get('titulo', tema_cita) if datos_adicionales else tema_cita
+            descripcion = datos_adicionales.get('descripcion', f"Expediente creado a partir de consulta del {fecha_cita}") if datos_adicionales else f"Expediente creado a partir de consulta del {fecha_cita}"
+            abogado = datos_adicionales.get('abogado', '') if datos_adicionales else ''
+            estado = datos_adicionales.get('estado', 'nuevo') if datos_adicionales else 'nuevo'
+        
+            fecha_inicio = datetime.now().strftime("%Y-%m-%d")
+            ultima_actualizacion = fecha_inicio
+        
+            cursor.execute(
+                "INSERT INTO proyectos (cliente_id, titulo, descripcion, estado, abogado, fecha_inicio, ultima_actualizacion) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (cliente_id, titulo, descripcion, estado, abogado, fecha_inicio, ultima_actualizacion)
+            )
+        
+            # Obtener el ID del expediente creado
+            proyecto_id = cursor.lastrowid
+        
+            # Añadir una nota inicial al expediente con la información de la consulta
+            cursor.execute("""
+            SELECT c.tipo, c.fecha, c.hora, c.tema
+            FROM citas c
+            WHERE c.id = ?
+            """, (cita_id,))
+        
+            cita_info = cursor.fetchone()
+            if cita_info:
+                tipo_cita, fecha_cita, hora_cita, tema_cita = cita_info
+            
+                nota_texto = f"Expediente creado a partir de una consulta {tipo_cita} realizada el {fecha_cita} a las {hora_cita}.\n"
+                nota_texto += f"Tema de la consulta: {tema_cita}\n"
+            
+                if datos_adicionales and datos_adicionales.get('notas_iniciales'):
+                    nota_texto += f"\nNotas iniciales:\n{datos_adicionales['notas_iniciales']}"
+            
+                cursor.execute(
+                    "INSERT INTO notas_proyecto (proyecto_id, fecha, texto) VALUES (?, ?, ?)",
+                    (proyecto_id, fecha_inicio, nota_texto)
+                )
+        
+            # Actualizar el estado de la cita si se solicita
+            if datos_adicionales and datos_adicionales.get('actualizar_estado_cita'):
+                cursor.execute(
+                    "UPDATE citas SET estado = 'procesada' WHERE id = ?",
+                    (cita_id,)
+                )
+        
+            conn.commit()
+            return proyecto_id
+    
+        except Exception as e:
+            print(f"Error al crear expediente desde consulta: {str(e)}")
+            conn.rollback()
+            return None
+        finally:
+            conn.close()
+            

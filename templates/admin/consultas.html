@@ -1,13 +1,13 @@
 {% extends "admin/base.html" %}
 
-{% block title %}Proyectos | Panel de Administración{% endblock %}
+{% block title %}Consultas | Panel de Administración{% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
-    <h1 class="h2">Proyectos</h1>
+    <h1 class="h2">Consultas pendientes de expediente</h1>
     <div class="btn-toolbar mb-2 mb-md-0">
-        <a href="{{ url_for('admin.nuevo_proyecto') }}" class="btn btn-sm btn-primary">
-            <i class="fas fa-plus"></i> Nuevo Proyecto
+        <a href="{{ url_for('admin.proyectos') }}" class="btn btn-sm btn-outline-secondary">
+            <i class="fas fa-folder"></i> Ver Expedientes
         </a>
     </div>
 </div>
@@ -17,7 +17,7 @@
         <div class="row mb-3">
             <div class="col-md-6">
                 <div class="input-group">
-                    <input type="text" class="form-control" id="searchProyecto" placeholder="Buscar proyecto...">
+                    <input type="text" class="form-control" id="searchConsulta" placeholder="Buscar consulta...">
                     <button class="btn btn-outline-secondary" type="button" id="btnSearch">
                         <i class="fas fa-search"></i>
                     </button>
@@ -30,41 +30,41 @@
                 <thead>
                     <tr>
                         <th>#</th>
-                        <th>Título</th>
+                        <th>Fecha</th>
                         <th>Cliente</th>
+                        <th>Tema</th>
+                        <th>Tipo</th>
                         <th>Estado</th>
-                        <th>Abogado</th>
-                        <th>Última Actualización</th>
                         <th>Acciones</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for proyecto in proyectos %}
+                    {% for consulta in consultas %}
                     <tr>
-                        <td>{{ proyecto.id }}</td>
-                        <td>{{ proyecto.titulo }}</td>
-                        <td>{{ proyecto.cliente_nombre }}</td>
+                        <td>{{ consulta.id }}</td>
+                        <td>{{ consulta.fecha }} {{ consulta.hora }}</td>
+                        <td>{{ consulta.cliente_nombre }}</td>
+                        <td>{{ consulta.tema }}</td>
+                        <td>{{ consulta.tipo }}</td>
                         <td>
-                            <span class="badge bg-{% if proyecto.estado == 'finalizado' %}success{% elif proyecto.estado == 'nuevo' %}primary{% else %}warning{% endif %}">
-                                {{ proyecto.estado | capitalize }}
+                            <span class="badge {% if consulta.estado == 'pendiente' %}bg-warning{% elif consulta.estado == 'confirmada' %}bg-success{% elif consulta.estado == 'cancelada' %}bg-danger{% elif consulta.estado == 'completada' %}bg-info{% else %}bg-secondary{% endif %}">
+                                {{ consulta.estado | capitalize }}
                             </span>
                         </td>
-                        <td>{{ proyecto.abogado }}</td>
-                        <td>{{ proyecto.ultima_actualizacion }}</td>
                         <td>
                             <div class="btn-group">
-                                <a href="{{ url_for('admin.ver_proyecto', proyecto_id=proyecto.id) }}" class="btn btn-sm btn-outline-primary">
-                                    <i class="fas fa-eye"></i>
+                                <a href="{{ url_for('admin.crear_expediente_desde_consulta', cita_id=consulta.id) }}" class="btn btn-sm btn-primary">
+                                    <i class="fas fa-file-alt"></i> Crear Expediente
                                 </a>
-                                <a href="{{ url_for('admin.editar_proyecto', proyecto_id=proyecto.id) }}" class="btn btn-sm btn-outline-secondary">
-                                    <i class="fas fa-edit"></i>
+                                <a href="{{ url_for('admin.ver_cita', cita_id=consulta.id) }}" class="btn btn-sm btn-outline-secondary">
+                                    <i class="fas fa-eye"></i>
                                 </a>
                             </div>
                         </td>
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="7" class="text-center">No hay proyectos registrados</td>
+                        <td colspan="7" class="text-center">No hay consultas pendientes de convertir a expediente</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -77,20 +77,20 @@
 {% block extra_js %}
 <script>
     document.addEventListener('DOMContentLoaded', function() {
-        const searchInput = document.getElementById('searchProyecto');
+        const searchInput = document.getElementById('searchConsulta');
         const tableRows = document.querySelectorAll('tbody tr');
         
         searchInput.addEventListener('keyup', function() {
             const searchTerm = searchInput.value.toLowerCase();
             
             tableRows.forEach(row => {
-                const titulo = row.cells[1]?.textContent.toLowerCase() || '';
+                const fecha = row.cells[1]?.textContent.toLowerCase() || '';
                 const cliente = row.cells[2]?.textContent.toLowerCase() || '';
-                const estado = row.cells[3]?.textContent.toLowerCase() || '';
-                const abogado = row.cells[4]?.textContent.toLowerCase() || '';
+                const tema = row.cells[3]?.textContent.toLowerCase() || '';
+                const tipo = row.cells[4]?.textContent.toLowerCase() || '';
                 
-                if (titulo.includes(searchTerm) || cliente.includes(searchTerm) || 
-                    estado.includes(searchTerm) || abogado.includes(searchTerm)) {
+                if (fecha.includes(searchTerm) || cliente.includes(searchTerm) || 
+                    tema.includes(searchTerm) || tipo.includes(searchTerm)) {
                     row.style.display = '';
                 } else {
                     row.style.display = 'none';

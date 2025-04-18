@@ -44,6 +44,9 @@ def get_google_calendar_service():
     service = build('calendar', 'v3', credentials=creds)
     return service
 
+# Modificación para handlers/calendar_service.py
+# Mejora en la función obtener_horarios_disponibles para evitar horas pasadas y solapadas
+
 def obtener_horarios_disponibles(fecha, tipo_reunion):
     """
     Obtiene los horarios disponibles para la fecha y tipo de reunión especificados.
@@ -65,6 +68,7 @@ def obtener_horarios_disponibles(fecha, tipo_reunion):
     
     # Si es fin de semana, no hay horarios disponibles
     if fecha_dt.weekday() >= 5:  # 5=Sábado, 6=Domingo
+        logger.debug(f"Día {fecha_dt.strftime('%Y-%m-%d')} es fin de semana, sin horarios disponibles")
         return []
     
     # Obtener la fecha y hora actual
@@ -72,6 +76,7 @@ def obtener_horarios_disponibles(fecha, tipo_reunion):
     
     # Si la fecha es anterior a hoy, no hay horarios disponibles
     if fecha_dt.date() < ahora.date():
+        logger.debug(f"Fecha {fecha_dt.strftime('%Y-%m-%d')} es anterior a hoy, sin horarios disponibles")
         return []
     
     try:
@@ -90,6 +95,22 @@ def obtener_horarios_disponibles(fecha, tipo_reunion):
             singleEvents=True,
             orderBy='startTime'
         ).execute()
+        
+        # Obtener también eventos de la base de datos SQLite
+        # Esto asegura consistencia entre ambos sistemas
+        db_eventos = []
+        try:
+            from db_manager import DatabaseManager
+            db = DatabaseManager()
+            db_events = db.get_all_calendar_events(fecha_dt.strftime("%Y-%m-%d"), fecha_dt.strftime("%Y-%m-%d"))
+            
+            # Convertir eventos de BD al mismo formato de horas ocupadas
+            for evento in db_events:
+                if 'start' in evento:
+                    hora_inicio = evento['start'].split('T')[1][:5]  # Extraer HH:MM
+                    db_eventos.append(hora_inicio)
+        except Exception as e:
+            logger.warning(f"Error al obtener eventos de BD: {e}. Continuando solo con Google Calendar.")
         
         # Obtener los horarios para el tipo de reunión específico
         horarios_manana = HORARIOS_POR_TIPO[tipo_reunion]["manana"]
@@ -114,7 +135,7 @@ def obtener_horarios_disponibles(fecha, tipo_reunion):
                 fin_dt = fin_dt.replace(tzinfo=None)
                 
                 # Verificar solape con cada horario disponible
-                for hora_str in horarios_completos.copy():
+                for hora_str in horarios_completos:
                     hora, minutos = map(int, hora_str.split(':'))
                     hora_dt = fecha_dt.replace(hour=hora, minute=minutos)
                     duracion_minutos = TIPOS_REUNION[tipo_reunion]["duracion_real"]
@@ -125,6 +146,9 @@ def obtener_horarios_disponibles(fecha, tipo_reunion):
                         inicio_dt < fin_hora_dt <= fin_dt or
                         (hora_dt <= inicio_dt and fin_dt <= fin_hora_dt)):
                         horas_ocupadas.append(hora_str)
+        
+        # Añadir las horas ocupadas de la base de datos
+        horas_ocupadas.extend(db_eventos)
         
         # Filtrar horarios disponibles
         horarios_disponibles = []
@@ -161,8 +185,10 @@ def obtener_horarios_disponibles(fecha, tipo_reunion):
                 if minutos_hora > minutos_actuales:
                     horarios_disponibles_filtrados.append(hora)
             
+            logger.debug(f"Fecha es hoy, filtrando horarios pasados. Disponibles: {horarios_disponibles_filtrados}")
             return horarios_disponibles_filtrados
         else:
+            logger.debug(f"Horarios disponibles para {fecha_dt.strftime('%Y-%m-%d')}: {horarios_disponibles}")
             return horarios_disponibles
         
     except Exception as e:
@@ -495,3 +521,127 @@ def _obtener_dias_disponibles_simulados(mes, anio, tipo_reunion):
     dias_disponibles = sorted(random.sample(dias_laborables, num_disponibles))
     
     return dias_disponibles
+
+
+def sincronizar_calendario_bd():
+    """
+    Sincroniza los eventos entre Google Calendar y la base de datos SQLite.
+    Garantiza que ambos sistemas tengan la misma información.
+    
+    Returns:
+        Tuple (éxito, mensaje) con el estado de la operación
+    """
+    try:
+        from db_manager import DatabaseManager
+        db = DatabaseManager()
+        
+        # 1. Obtener eventos de Google Calendar
+        service = get_google_calendar_service()
+        
+        # Establecer fechas desde hace una semana hasta un mes adelante
+        now = datetime.datetime.now()
+        time_min = (now - datetime.timedelta(days=7)).isoformat() + 'Z'
+        time_max = (now + datetime.timedelta(days=30)).isoformat() + 'Z'
+        
+        # Obtener eventos del calendario
+        eventos_google = service.events().list(
+            calendarId='primary',
+            timeMin=time_min,
+            timeMax=time_max,
+            singleEvents=True,
+            orderBy='startTime'
+        ).execute().get('items', [])
+        
+        # 2. Obtener eventos de la base de datos
+        eventos_bd = db.get_all_calendar_events()
+        
+        # 3. Sincronizar citas de BD a Google (crear las que faltan)
+        for evento_bd in eventos_bd:
+            if evento_bd['type'] == 'appointment':  # Solo sincronizamos citas
+                cita_id = evento_bd['id'].replace('cita_', '')
+                
+                # Verificar si ya existe en Google
+                existe_en_google = False
+                for evento_google in eventos_google:
+                    if evento_google.get('id') == evento_bd['id'] or evento_google.get('description', '').find(f"ID: {cita_id}") >= 0:
+                        existe_en_google = True
+                        break
+                
+                if not existe_en_google:
+                    # Obtener detalles completos de la cita desde la BD
+                    cita = db.get_cita(cita_id)
+                    if cita:
+                        # Construir fecha y hora en formato ISO
+                        fecha_hora = f"{cita['fecha']}T{cita['hora']}:00"
+                        fecha_hora_dt = datetime.datetime.fromisoformat(fecha_hora)
+                        
+                        # Calcular fin según duración
+                        duracion = TIPOS_REUNION[cita['tipo']]["duracion_real"]
+                        fecha_hora_fin = fecha_hora_dt + datetime.timedelta(minutes=duracion)
+                        
+                        # Crear evento en Google
+                        evento = {
+                            'summary': f"Consulta Legal - {cita['cliente']['nombre']} - {cita['tipo']}",
+                            'description': f"{cita['tema']}\n\nID: {cita_id}",
+                            'start': {
+                                'dateTime': fecha_hora_dt.isoformat(),
+                                'timeZone': 'Europe/Madrid',
+                            },
+                            'end': {
+                                'dateTime': fecha_hora_fin.isoformat(),
+                                'timeZone': 'Europe/Madrid',
+                            },
+                            'attendees': [
+                                {'email': cita['cliente']['email']},
+                            ],
+                            'reminders': {
+                                'useDefault': False,
+                                'overrides': [
+                                    {'method': 'email', 'minutes': 24 * 60},
+                                    {'method': 'popup', 'minutes': 30},
+                                ],
+                            },
+                            'colorId': "11" if cita['tipo'] == 'presencial' else "6" if cita['tipo'] == 'videoconferencia' else "3"
+                        }
+                        
+                        service.events().insert(calendarId='primary', body=evento).execute()
+                        logger.info(f"Cita {cita_id} creada en Google Calendar")
+        
+        # 4. Sincronizar citas de Google a BD (actualizar estado)
+        for evento_google in eventos_google:
+            # Verificar si es una cita legal (por el título)
+            if "Consulta Legal" in evento_google.get('summary', ''):
+                # Intentar extraer el ID de la cita desde la descripción
+                description = evento_google.get('description', '')
+                cita_id_match = re.search(r'ID: (\d+)', description)
+                
+                if cita_id_match:
+                    cita_id = cita_id_match.group(1)
+                    # Verificar estado en Google
+                    estado_google = evento_google.get('status', 'confirmed')
+                    
+                    if estado_google == 'cancelled':
+                        # Marcar como cancelada en BD
+                        db.update_cita(cita_id, estado="cancelada")
+                        logger.info(f"Cita {cita_id} marcada como cancelada en BD desde Google")
+                    elif estado_google == 'confirmed':
+                        # Verificar si la fecha/hora cambió
+                        fecha_hora_google = evento_google['start'].get('dateTime')
+                        if fecha_hora_google:
+                            fecha_hora_dt = datetime.datetime.fromisoformat(fecha_hora_google.replace('Z', '+00:00'))
+                            fecha_google = fecha_hora_dt.strftime("%Y-%m-%d")
+                            hora_google = fecha_hora_dt.strftime("%H:%M")
+                            
+                            # Actualizar en BD si cambió
+                            cita = db.get_cita(cita_id)
+                            if cita and (cita['fecha'] != fecha_google or cita['hora'] != hora_google):
+                                db.update_cita(cita_id, fecha=fecha_google, hora=hora_google)
+                                logger.info(f"Cita {cita_id} actualizada con nueva fecha/hora desde Google")
+        
+        return (True, "Sincronización completada correctamente")
+    
+    except Exception as e:
+        logger.error(f"Error al sincronizar calendario: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return (False, f"Error de sincronización: {str(e)}")

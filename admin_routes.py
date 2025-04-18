@@ -57,11 +57,15 @@ def dashboard():
     # Obtener estadísticas para el dashboard
     clientes = db.get_all_clientes()
     
+    # Obtener consultas sin expediente
+    consultas_pendientes = db.get_consultas_sin_expediante()
+    
     stats = {
         'total_clientes': len(clientes),
         'citas_proximas': 0,
         'eventos_proximos': 0,
-        'proyectos_activos': 0
+        'proyectos_activos': 0,
+        'consultas_pendientes': len(consultas_pendientes)
     }
     
     # Obtener eventos del calendario próximos (7 días)
@@ -82,14 +86,18 @@ def dashboard():
     # Próximos eventos del calendario
     proximos_eventos = sorted(eventos, key=lambda x: x['start'])[:10]
     
+    # Últimas consultas sin expediente (top 5)
+    ultimas_consultas = consultas_pendientes[:5]
+    
     return render_template('admin/dashboard.html', 
                           stats=stats, 
                           ultimos_clientes=ultimos_clientes,
-                          proximos_eventos=proximos_eventos)
+                          proximos_eventos=proximos_eventos,
+                          ultimas_consultas=ultimas_consultas)
 
 # Gestión de clientes
 @admin_bp.route('/clientes')
-@login_required
+@role_required(['admin', 'gestor', 'recepcion'])  # Estos roles pueden ver clientes
 def clientes():
     clientes = db.get_all_clientes()
     return render_template('admin/clientes.html', clientes=clientes)
@@ -118,15 +126,24 @@ def nuevo_cliente():
 @admin_bp.route('/proyectos')
 @login_required
 def proyectos():
-    """Vista para mostrar todos los proyectos."""
+    """Vista para mostrar todos los expedientes."""
     try:
-        # Obtener todos los proyectos (simplificado)
+        # Obtener todos los expedientes con información del cliente
         proyectos = []
         clientes = db.get_all_clientes()
         
-        # Para cada cliente, obtener sus proyectos
+        # Crear un diccionario para acceso rápido a clientes por ID
+        clientes_dict = {cliente['id']: cliente for cliente in clientes}
+        
+        # Para cada cliente, obtener sus expedientes
         for cliente in clientes:
             proyectos_cliente = db.get_proyectos_by_cliente(cliente['id'])
+            
+            # Añadir el nombre del cliente a cada expediente
+            for proyecto in proyectos_cliente:
+                proyecto['cliente_nombre'] = cliente['nombre']
+                proyecto['cliente_email'] = cliente['email']
+            
             proyectos.extend(proyectos_cliente)
         
         # Ordenar por actualización más reciente
@@ -134,8 +151,9 @@ def proyectos():
         
         return render_template('admin/proyectos.html', proyectos=proyectos)
     except Exception as e:
-        flash(f'Error al cargar proyectos: {str(e)}', 'error')
+        flash(f'Error al cargar expedientes: {str(e)}', 'error')
         return redirect(url_for('admin.dashboard'))
+
 
 
 # Gestión de calendario
@@ -197,22 +215,24 @@ def api_eventos():
 def citas():
     """Vista para mostrar todas las citas."""
     try:
-        # Obtener todas las citas
-        todas_citas = []
+        # Obtener todas las citas con información completa de clientes
+        todas_citas = db.get_all_citas()
         
-        # Para cada cliente, obtener sus citas
-        clientes = db.get_all_clientes()
-        for cliente in clientes:
-            citas_cliente = db.get_citas_by_cliente(cliente['id'])
-            todas_citas.extend(citas_cliente)
+        # Si la función get_all_citas no incluye el nombre del cliente, lo añadimos aquí
+        for cita in todas_citas:
+            if 'cliente_nombre' not in cita and 'cliente' in cita and 'nombre' in cita['cliente']:
+                cita['cliente_nombre'] = cita['cliente']['nombre']
         
-        # Ordenar por fecha más reciente
+        # Ordenar por fecha y hora
         todas_citas = sorted(todas_citas, key=lambda c: (c.get('fecha', ''), c.get('hora', '')))
         
         return render_template('admin/citas.html', citas=todas_citas)
     except Exception as e:
         flash(f'Error al cargar citas: {str(e)}', 'error')
         return redirect(url_for('admin.dashboard'))
+
+
+
 @admin_bp.route('/citas/nueva', methods=['GET', 'POST'])
 
 
@@ -473,6 +493,57 @@ def api_citas():
             'error': str(e)
         }), 500
 
+@admin_bp.route('/citas/<int:cita_id>/cancelar', methods=['POST'])
+@login_required
+def cancelar_cita(cita_id):
+    """Cancela una cita existente."""
+    try:
+        # Obtener motivo de cancelación si existe
+        motivo = request.form.get('motivo', None)
+        
+        # Obtener información de la cita antes de actualizarla
+        cita = db.get_cita(cita_id)
+        if not cita:
+            flash('Cita no encontrada', 'danger')
+            return redirect(url_for('admin.citas'))
+        
+        # Guardar datos para notificaciones
+        datos_cliente = cita['cliente']
+        fecha = cita['fecha']
+        hora = cita['hora']
+        tipo = cita['tipo']
+        
+        # Actualizar el estado de la cita a cancelada
+        db.update_cita(cita_id, estado="cancelada")
+        
+        # Enviar notificaciones
+        from handlers.email_service import enviar_correo_cancelacion, enviar_sms_cancelacion
+        
+        # Enviar email
+        try:
+            enviar_correo_cancelacion(datos_cliente, fecha, hora, tipo, motivo)
+        except Exception as e:
+            print(f"Error al enviar correo de cancelación: {str(e)}")
+        
+        # Enviar SMS si hay teléfono
+        if datos_cliente.get('telefono'):
+            try:
+                enviar_sms_cancelacion(datos_cliente['telefono'], fecha, hora, tipo, motivo)
+            except Exception as e:
+                print(f"Error al enviar SMS de cancelación: {str(e)}")
+        
+        flash(f'Cita del {fecha} a las {hora} cancelada correctamente', 'success')
+        
+        # Redireccionar según origen
+        if request.args.get('from') == 'calendar':
+            return redirect(url_for('admin.calendario'))
+        else:
+            return redirect(url_for('admin.citas'))
+    except Exception as e:
+        flash(f'Error al cancelar cita: {str(e)}', 'danger')
+        return redirect(url_for('admin.ver_cita', cita_id=cita_id))
+
+
 @admin_bp.route('/api/citas/<int:cita_id>', methods=['GET', 'PUT', 'DELETE'])
 @login_required
 def api_cita(cita_id):
@@ -523,6 +594,78 @@ def api_cita(cita_id):
             'success': False,
             'error': str(e)
         }), 500
+    
+@admin_bp.route('/consultas')
+@login_required
+def consultas():
+    """Vista para mostrar todas las consultas sin expediente asociado."""
+    try:
+        # Obtener todas las consultas sin expediente
+        consultas = db.get_consultas_sin_expediante()
+        
+        return render_template('admin/consultas.html', consultas=consultas)
+    except Exception as e:
+        flash(f'Error al cargar consultas: {str(e)}', 'error')
+        return redirect(url_for('admin.dashboard'))
+
+@admin_bp.route('/consultas/<int:cita_id>/crear-expediente', methods=['GET', 'POST'])
+@login_required
+def crear_expediente_desde_consulta(cita_id):
+    """Crea un nuevo expediente a partir de una consulta."""
+    try:
+        # Obtener detalles de la cita
+        cita = db.get_cita(cita_id)
+        if not cita:
+            flash('Consulta no encontrada', 'danger')
+            return redirect(url_for('admin.consultas'))
+        
+        if request.method == 'POST':
+            # Procesar formulario
+            datos_expediente = {
+                'titulo': request.form.get('titulo'),
+                'descripcion': request.form.get('descripcion'),
+                'abogado': request.form.get('abogado'),
+                'estado': request.form.get('estado', 'nuevo'),
+                'notas_iniciales': request.form.get('notas_iniciales', ''),
+                'actualizar_estado_cita': request.form.get('actualizar_estado_cita') == 'on'
+            }
+            
+            # Crear expediente
+            expediente_id = db.crear_expediente_desde_consulta(cita_id, datos_expediente)
+            
+            if expediente_id:
+                flash('Expediente creado correctamente', 'success')
+                return redirect(url_for('admin.ver_proyecto', proyecto_id=expediente_id))
+            else:
+                flash('Error al crear el expediente', 'danger')
+                return render_template('admin/crear_expediente_form.html', cita=cita)
+        
+        return render_template('admin/crear_expediente_form.html', cita=cita)
+    except Exception as e:
+        flash(f'Error al procesar la consulta: {str(e)}', 'danger')
+        return redirect(url_for('admin.consultas'))
+
+
+
+@admin_bp.route('/calendario/sincronizar', methods=['POST'])
+@login_required
+def sincronizar_calendario():
+    """Sincroniza manualmente el calendario con Google."""
+    try:
+        from handlers.calendar_service import sincronizar_calendario_bd
+        
+        exito, mensaje = sincronizar_calendario_bd()
+        
+        if exito:
+            flash(mensaje, 'success')
+        else:
+            flash(mensaje, 'danger')
+        
+        return redirect(url_for('admin.calendario'))
+    except Exception as e:
+        flash(f'Error al sincronizar calendario: {str(e)}', 'danger')
+        return redirect(url_for('admin.calendario'))
+
 
 # Métodos adicionales necesarios para el gestor de base de datos (db_manager.py)
 
@@ -1149,15 +1292,10 @@ def enviar_recordatorio(cita_id):
 # Rutas para gestión de usuarios a añadir en admin_routes.py
 
 @admin_bp.route('/usuarios')
-@login_required
+@role_required('admin')  # Solo admin puede gestionar usuarios
 def usuarios():
     """Vista para mostrar todos los usuarios del sistema."""
     try:
-        # Verificar que el usuario actual es admin
-        if session.get('admin_role') != 'admin':
-            flash('No tienes permisos para acceder a esta sección', 'danger')
-            return redirect(url_for('admin.dashboard'))
-        
         # Obtener todos los usuarios
         usuarios = db.get_all_usuarios()
         
@@ -1165,6 +1303,8 @@ def usuarios():
     except Exception as e:
         flash(f'Error al cargar usuarios: {str(e)}', 'danger')
         return redirect(url_for('admin.dashboard'))
+    
+
 
 @admin_bp.route('/usuarios/nuevo', methods=['GET', 'POST'])
 @login_required
@@ -1303,10 +1443,42 @@ def login():
             session['admin_logged_in'] = True
             session['admin_id'] = user['id']
             session['admin_role'] = user['role']
+            session['admin_name'] = user['nombre'] if 'nombre' in user else username
             
+            flash(f'Bienvenido, {session["admin_name"]}', 'success')
             next_page = request.args.get('next', url_for('admin.dashboard'))
             return redirect(next_page)
         else:
             flash('Credenciales incorrectas o usuario desactivado', 'danger')
     
     return render_template('admin/login.html')
+
+# Para el control de acceso según rol, modificamos el decorador
+
+def role_required(roles):
+    """
+    Decorador para requerir uno o varios roles específicos
+    Args:
+        roles: String o lista de strings con los roles permitidos
+    """
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            if not session.get('admin_logged_in'):
+                return redirect(url_for('admin.login', next=request.url))
+            
+            if isinstance(roles, str):
+                allowed_roles = [roles]
+            else:
+                allowed_roles = roles
+                
+            if 'admin' in allowed_roles:
+                allowed_roles.append('admin')  # Admin siempre tiene acceso
+                
+            if session.get('admin_role') not in allowed_roles:
+                flash('No tienes permisos para acceder a esta sección', 'danger')
+                return redirect(url_for('admin.dashboard'))
+                
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
