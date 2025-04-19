@@ -1008,7 +1008,6 @@ class DatabaseManager:
         """)
     
         citas_raw = cursor.fetchall()
-    
         conn.close()
     
         citas = []
@@ -1021,9 +1020,7 @@ class DatabaseManager:
                 'tema': c[4],
                 'estado': c[5],
                 'fecha_creacion': c[6],
-                'cliente_nombre': c[8],
-                'cliente_email': c[9],
-                'cliente_telefono': c[10],
+                'cliente_nombre': c[8],  # Este campo es importante para la tabla
                 'cliente': {
                     'id': c[7],
                     'nombre': c[8],
@@ -1306,4 +1303,3 @@ class DatabaseManager:
             return None
         finally:
             conn.close()
-            
