@@ -56,8 +56,8 @@ def initialize_database():
     database_initialized = True
 
 # Registrar las rutas del panel de administración
-from admin_routes import register_admin_blueprint
-register_admin_blueprint(app)
+from admin_routes import admin_bp
+app.register_blueprint(admin_bp)
 
 # Crear direcciones para archivos estáticos y templates
 @app.route('/static/<path:filename>')

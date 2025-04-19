@@ -826,127 +826,8 @@ def api_evento_crud(evento_id):
             'error': str(e)
         }), 500
 
-# API para gestión de citas
-@admin_bp.route('/api/citas', methods=['GET'])
-@login_required
-def api_citas():
-    """API para obtener todas las citas"""
-    try:
-        # Obtener todas las citas con sus respectivos clientes
-        citas = db.get_all_citas()
-        
-        return jsonify({
-            'success': True,
-            'citas': citas
-        })
-    
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-@admin_bp.route('/citas/<int:cita_id>/cancelar', methods=['POST'])
-@login_required
-def cancelar_cita(cita_id):
-    """Cancela una cita existente."""
-    try:
-        # Obtener motivo de cancelación si existe
-        motivo = request.form.get('motivo', None)
-        
-        # Obtener información de la cita antes de actualizarla
-        cita = db.get_cita(cita_id)
-        if not cita:
-            flash('Cita no encontrada', 'danger')
-            return redirect(url_for('admin.citas'))
-        
-        # Guardar datos para notificaciones
-        datos_cliente = cita['cliente']
-        fecha = cita['fecha']
-        hora = cita['hora']
-        tipo = cita['tipo']
-        
-        # Actualizar el estado de la cita a cancelada
-        db.update_cita(cita_id, estado="cancelada")
-        
-        # Enviar notificaciones
-        from handlers.email_service import enviar_correo_cancelacion, enviar_sms_cancelacion
-        
-        # Enviar email
-        try:
-            enviar_correo_cancelacion(datos_cliente, fecha, hora, tipo, motivo)
-        except Exception as e:
-            print(f"Error al enviar correo de cancelación: {str(e)}")
-        
-        # Enviar SMS si hay teléfono
-        if datos_cliente.get('telefono'):
-            try:
-                enviar_sms_cancelacion(datos_cliente['telefono'], fecha, hora, tipo, motivo)
-            except Exception as e:
-                print(f"Error al enviar SMS de cancelación: {str(e)}")
-        
-        flash(f'Cita del {fecha} a las {hora} cancelada correctamente', 'success')
-        
-        # Redireccionar según origen
-        if request.args.get('from') == 'calendar':
-            return redirect(url_for('admin.calendario'))
-        else:
-            return redirect(url_for('admin.citas'))
-    except Exception as e:
-        flash(f'Error al cancelar cita: {str(e)}', 'danger')
-        return redirect(url_for('admin.ver_cita', cita_id=cita_id))
 
 
-@admin_bp.route('/api/citas/<int:cita_id>', methods=['GET', 'PUT', 'DELETE'])
-@login_required
-def api_cita(cita_id):
-    """API para gestionar una cita específica"""
-    try:
-        if request.method == 'GET':
-            cita = db.get_cita(cita_id)
-            if not cita:
-                return jsonify({
-                    'success': False,
-                    'error': 'Cita no encontrada'
-                }), 404
-            
-            return jsonify({
-                'success': True,
-                'cita': cita
-            })
-        
-        elif request.method == 'PUT':
-            data = request.json
-            
-            # Actualizar cita
-            db.update_cita(
-                cita_id,
-                tipo=data.get('tipo'),
-                fecha=data.get('fecha'),
-                hora=data.get('hora'),
-                tema=data.get('tema'),
-                estado=data.get('estado')
-            )
-            
-            return jsonify({
-                'success': True,
-                'message': 'Cita actualizada correctamente'
-            })
-        
-        elif request.method == 'DELETE':
-            # Eliminar la cita
-            db.delete_cita(cita_id)
-            
-            return jsonify({
-                'success': True,
-                'message': 'Cita eliminada correctamente'
-            })
-    
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
 # consultas  
 #     
 @admin_bp.route('/consultas')
@@ -1721,29 +1602,6 @@ def cambiar_password():
 
 
 
-# Modificar la ruta de login para usar el nuevo sistema de autenticación
-@admin_bp.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        
-        # Autenticar usuario con la base de datos
-        user = db.authenticate_user(username, password)
-        
-        if user:
-            session['admin_logged_in'] = True
-            session['admin_id'] = user['id']
-            session['admin_role'] = user['role']
-            session['admin_name'] = user['nombre'] if 'nombre' in user else username
-            
-            flash(f'Bienvenido, {session["admin_name"]}', 'success')
-            next_page = request.args.get('next', url_for('admin.dashboard'))
-            return redirect(next_page)
-        else:
-            flash('Credenciales incorrectas o usuario desactivado', 'danger')
-    
-    return render_template('admin/login.html')
 
 # Para el control de acceso según rol, modificamos el decorador
 
