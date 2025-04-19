@@ -85,7 +85,7 @@ def generar_respuesta(mensaje, user_id, user_states):
     
     # NUEVO: Manejo especial para cancelación de citas
     if "cancelar" in mensaje_lower and "cita" in mensaje_lower:
-        if estado_usuario["estado"] in ["esperando_seleccion_cita_cancelar", "esperando_confirmacion_cancelacion"]:
+        if estado_usuario["estado"] in ["esperando_seleccion_cita_cancelar", "esperando_confirmacion_cancelacion", "esperando_datos_cancelacion"]:
             # Ya estamos en proceso de cancelación, procesar selección o confirmación
             return procesar_seleccion_cancelacion(mensaje, user_id, user_states)
         else:
@@ -759,14 +759,16 @@ def cancelar_cita_cliente(user_id, user_states, datos_cliente=None):
     estado_usuario = user_states[user_id]
     
     if not datos_cliente:
-        if estado_usuario["datos"]["email"]:
+        # Primero verificar si hay datos en el estado actual
+        if estado_usuario["datos"].get("email"):
             datos_cliente = {
                 "email": estado_usuario["datos"]["email"],
-                "nombre": estado_usuario["datos"]["nombre"],
-                "telefono": estado_usuario["datos"]["telefono"]
+                "nombre": estado_usuario["datos"].get("nombre"),
+                "telefono": estado_usuario["datos"].get("telefono")
             }
         else:
-            return "Para cancelar una cita, necesito saber quién eres. Por favor, indícame tu email o teléfono."
+            estado_usuario["estado"] = "esperando_datos_cancelacion"
+            return "Para cancelar una cita, necesito verificar tu identidad. Por favor, indícame tu email o teléfono."
     
     # Buscar el cliente en la base de datos
     cliente = None
@@ -776,10 +778,14 @@ def cancelar_cita_cliente(user_id, user_states, datos_cliente=None):
         cliente = _buscar_cliente_por_telefono(datos_cliente["telefono"])
     
     if not cliente:
-        return "No hemos podido encontrar tus datos en nuestro sistema. ¿Podrías proporcionar tu email o teléfono nuevamente?"
+        estado_usuario["estado"] = "esperando_datos_cancelacion"
+        return "No he podido encontrar tus datos en nuestro sistema. Por favor, proporciona tu email o teléfono para verificar tu identidad."
     
     # Buscar citas pendientes del cliente
     email_cliente = cliente.get("email")
+    
+    # Obtener la fecha actual para filtrar correctamente
+    fecha_actual = datetime.datetime.now()
     
     # Encontrar todas las citas del cliente
     citas_cliente = []
@@ -787,21 +793,31 @@ def cancelar_cita_cliente(user_id, user_states, datos_cliente=None):
     # Buscar en la base de datos de citas por el email
     for cita_id, cita_info in citas_db.items():
         if cita_info["cliente"]["email"] == email_cliente:
-            # Solo considerar citas futuras
-            fecha_cita = datetime.datetime.strptime(cita_info["fecha"], "%Y-%m-%d")
-            fecha_actual = datetime.datetime.now()
-            
-            if fecha_cita.date() >= fecha_actual.date():
-                # Añadir ID para referencia posterior
-                cita_info["id"] = cita_id
-                citas_cliente.append(cita_info)
+            # Solo considerar citas futuras que no estén canceladas
+            try:
+                fecha_cita = datetime.datetime.strptime(cita_info["fecha"], "%Y-%m-%d")
+                hora_partes = cita_info["hora"].split(":")
+                fecha_hora_cita = fecha_cita.replace(
+                    hour=int(hora_partes[0]), 
+                    minute=int(hora_partes[1])
+                )
+                
+                # Verificar que la cita es futura y no está cancelada
+                if fecha_hora_cita > fecha_actual and cita_info.get("estado", "pendiente") != "cancelada":
+                    # Añadir ID para referencia posterior
+                    cita_info["id"] = cita_id
+                    citas_cliente.append(cita_info)
+            except Exception as e:
+                logger.warning(f"Error al procesar fecha de cita {cita_id}: {e}")
+                continue
     
     # Ordenar por fecha/hora
     citas_cliente.sort(key=lambda x: (x["fecha"], x["hora"]))
     
     # Verificar si hay citas pendientes
     if not citas_cliente:
-        return f"No hemos encontrado citas pendientes para ti, {cliente.get('nombre', 'estimado cliente')}."
+        estado_usuario["estado"] = "inicial"
+        return f"No hemos encontrado citas pendientes para ti, {cliente.get('nombre', 'estimado cliente')}. ¿En qué más puedo ayudarte?"
     
     # Guardar las citas en el estado para referencia posterior
     estado_usuario["citas_cancelables"] = citas_cliente
@@ -814,8 +830,7 @@ def cancelar_cita_cliente(user_id, user_states, datos_cliente=None):
         estado_usuario["estado"] = "esperando_confirmacion_cancelacion"
         estado_usuario["cita_a_cancelar"] = cita["id"]
         
-        return f"Hemos encontrado una cita pendiente para el {fecha_formateada} a las {cita['hora']} " + \
-               f"de tipo {cita['tipo']}. ¿Deseas cancelarla? [MENU:Sí, cancelar cita|No, mantener cita]"
+        return f"Hemos encontrado una cita pendiente para el {fecha_formateada} a las {cita['hora']} de tipo {cita['tipo']}. ¿Deseas cancelarla? [MENU:Sí, cancelar cita|No, mantener cita]"
     
     # Si hay varias citas, mostrar un menú para seleccionar
     mensaje = f"Hemos encontrado {len(citas_cliente)} citas pendientes para ti:\n\n"
@@ -823,18 +838,20 @@ def cancelar_cita_cliente(user_id, user_states, datos_cliente=None):
     opciones_menu = []
     for i, cita in enumerate(citas_cliente, 1):
         fecha_formateada = datetime.datetime.strptime(cita["fecha"], "%Y-%m-%d").strftime("%d/%m/%Y")
-        mensaje += f"{i}. {fecha_formateada} a las {cita['hora']} - {cita['tipo']}\n"
+        mensaje += f"{i}. {fecha_formateada} a las {cita['hora']} - {cita['tipo']}"
+        if cita.get("tema"):
+            mensaje += f" - Tema: {cita['tema']}"
+        mensaje += "\n"
         opciones_menu.append(f"Cancelar cita {i}")
     
     opciones_menu.append("No cancelar ninguna")
     estado_usuario["estado"] = "esperando_seleccion_cita_cancelar"
     
-    mensaje += "\n¿Cuál deseas cancelar?"
-    mensaje += f" [MENU:{opciones_menu[0]}|{opciones_menu[1]}]" if len(opciones_menu) == 2 else \
-              f" [MENU:{opciones_menu[0]}|{opciones_menu[1]}|{opciones_menu[2]}]" if len(opciones_menu) == 3 else \
-              f" [MENU:{opciones_menu[0]}|{opciones_menu[1]}|Más opciones]"
+    mensaje += "\n¿Cuál deseas cancelar? "
     
-    return mensaje
+    # Construir el menú con las opciones disponibles
+    menu_options = "|".join(opciones_menu)
+    return mensaje + f"[MENU:{menu_options}]"
 
 def procesar_seleccion_cancelacion(mensaje, user_id, user_states):
     """
@@ -850,7 +867,23 @@ def procesar_seleccion_cancelacion(mensaje, user_id, user_states):
     """
     estado_usuario = user_states[user_id]
     
-    if estado_usuario["estado"] == "esperando_seleccion_cita_cancelar":
+    if estado_usuario["estado"] == "esperando_datos_cancelacion":
+        # Procesar datos de identificación
+        datos_identificados = identificar_datos_personales(mensaje)
+        
+        if datos_identificados["email"] or datos_identificados["telefono"]:
+            # Actualizar estado con los datos identificados
+            if datos_identificados["email"]:
+                estado_usuario["datos"]["email"] = datos_identificados["email"]
+            if datos_identificados["telefono"]:
+                estado_usuario["datos"]["telefono"] = datos_identificados["telefono"]
+            
+            # Llamar a cancelar_cita_cliente con los datos actualizados
+            return cancelar_cita_cliente(user_id, user_states, estado_usuario["datos"])
+        else:
+            return "No he podido identificar tu email o teléfono. Por favor, proporciona tu email o teléfono para poder buscar tus citas."
+    
+    elif estado_usuario["estado"] == "esperando_seleccion_cita_cancelar":
         # Determinar qué cita se quiere cancelar
         citas = estado_usuario["citas_cancelables"]
         
@@ -860,15 +893,20 @@ def procesar_seleccion_cancelacion(mensaje, user_id, user_states):
         if mensaje.isdigit():
             indice = int(mensaje) - 1
         else:
-            # Buscar patrones como "Cancelar cita X"
+            # Buscar patrones como "Cancelar cita X" o simplemente el número
             match = re.search(r'cancelar\s+cita\s+(\d+)', mensaje.lower())
             if match:
                 indice = int(match.group(1)) - 1
             else:
-                # No cancelar ninguna
-                if "no cancelar" in mensaje.lower() or "ninguna" in mensaje.lower():
-                    estado_usuario["estado"] = "inicial"
-                    return "Entendido, no se cancelará ninguna cita. ¿En qué más puedo ayudarte?"
+                # Buscar solo el número
+                match = re.search(r'(\d+)', mensaje)
+                if match:
+                    indice = int(match.group(1)) - 1
+                else:
+                    # No cancelar ninguna
+                    if "no cancelar" in mensaje.lower() or "ninguna" in mensaje.lower():
+                        estado_usuario["estado"] = "inicial"
+                        return "Entendido, no se cancelará ninguna cita. ¿En qué más puedo ayudarte?"
         
         # Verificar que el índice es válido
         if indice is not None and 0 <= indice < len(citas):
@@ -877,7 +915,11 @@ def procesar_seleccion_cancelacion(mensaje, user_id, user_states):
             estado_usuario["cita_a_cancelar"] = cita["id"]
             
             fecha_formateada = datetime.datetime.strptime(cita["fecha"], "%Y-%m-%d").strftime("%d/%m/%Y")
-            return f"¿Estás seguro de que deseas cancelar tu cita del {fecha_formateada} a las {cita['hora']}? [MENU:Sí, cancelar|No, mantener]"
+            mensaje = f"¿Estás seguro de que deseas cancelar tu cita del {fecha_formateada} a las {cita['hora']}?"
+            if cita.get("tema"):
+                mensaje += f"\nTema: {cita['tema']}"
+            mensaje += "\n\n[MENU:Sí, cancelar|No, mantener]"
+            return mensaje
         else:
             return "No he podido identificar qué cita deseas cancelar. Por favor, elige una de las opciones numeradas."
     
@@ -894,33 +936,43 @@ def procesar_seleccion_cancelacion(mensaje, user_id, user_states):
             if cita_id in citas_db:
                 citas_db[cita_id]["estado"] = "cancelada"
                 
-                # Intentar actualizar la base de datos si está disponible
+                # Intentar actualizar la base de datos SQLite también
                 try:
+                    # Extraer el ID numérico si está en formato "cita_XXXX"
+                    if cita_id.startswith("cita_"):
+                        cita_id_num = int(cita_id.split("_")[1])
+                    else:
+                        cita_id_num = int(cita_id)
+                    
+                    # Actualizar en SQLite
                     from db_manager import DatabaseManager
                     db = DatabaseManager()
-                    db.update_cita(cita_id, estado="cancelada")
+                    db.update_cita(cita_id_num, estado="cancelada")
+                    logger.info(f"Cita {cita_id_num} actualizada en base de datos SQLite")
                 except Exception as e:
-                    print(f"Error al actualizar BD: {str(e)}")
+                    logger.error(f"Error al actualizar cita en SQLite: {str(e)}")
                 
                 # Enviar notificación por email y SMS
                 if cita_info:
                     try:
-                        # Solo para logging, no envía realmente en entorno de desarrollo
                         from handlers.email_service import enviar_correo_cancelacion, enviar_sms_cancelacion
                         
                         datos_cliente = cita_info.get("cliente", {})
                         fecha = cita_info.get("fecha", "")
                         hora = cita_info.get("hora", "")
                         tipo_reunion = cita_info.get("tipo", "")
+                        tema = cita_info.get("tema", "")
                         
                         # Enviar notificaciones
                         if datos_cliente.get("email"):
-                            enviar_correo_cancelacion(datos_cliente, fecha, hora, tipo_reunion)
+                            enviar_correo_cancelacion(datos_cliente, fecha, hora, tipo_reunion, tema)
                         
                         if datos_cliente.get("telefono"):
-                            enviar_sms_cancelacion(datos_cliente["telefono"], fecha, hora, tipo_reunion)
+                            enviar_sms_cancelacion(datos_cliente["telefono"], fecha, hora, tipo_reunion, tema)
+                            
+                        logger.info(f"Notificaciones de cancelación enviadas para cita {cita_id}")
                     except Exception as e:
-                        print(f"Error al enviar notificaciones: {str(e)}")
+                        logger.error(f"Error al enviar notificaciones de cancelación: {str(e)}")
                 
                 # Resetear estado
                 reset_conversacion(user_id, user_states)
@@ -938,7 +990,6 @@ def procesar_seleccion_cancelacion(mensaje, user_id, user_states):
     
     # Estado incorrecto
     return "Lo siento, ha ocurrido un error en el proceso de cancelación. Por favor, intenta nuevamente o contacta con nuestras oficinas."
-
 # Añadir también las funciones para enviar notificaciones de cancelación en email_service.py
 
 def enviar_correo_cancelacion(datos_cliente, fecha, hora, tipo_reunion):

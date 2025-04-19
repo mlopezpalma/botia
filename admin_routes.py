@@ -13,7 +13,7 @@ admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 # Inicializar el gestor de base de datos
 db = DatabaseManager()
 
-# Función para requerir autenticación
+# Ubicar al inicio del archivo, antes de las rutas
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -22,24 +22,56 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+def role_required(roles):
+    """
+    Decorador para requerir uno o varios roles específicos
+    Args:
+        roles: String o lista de strings con los roles permitidos
+    """
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            if not session.get('admin_logged_in'):
+                return redirect(url_for('admin.admin_login', next=request.url))
+            
+            if isinstance(roles, str):
+                allowed_roles = [roles]
+            else:
+                allowed_roles = roles
+                
+            # Admin siempre tiene acceso a todo
+            if session.get('admin_role') == 'admin':
+                return f(*args, **kwargs)
+                
+            if session.get('admin_role') not in allowed_roles:
+                flash('No tienes permisos para acceder a esta sección', 'danger')
+                return redirect(url_for('admin.dashboard'))
+                
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
+
 # Rutas de autenticación
-@admin_bp.route('/login', methods=['GET', 'POST'], endpoint='admin_login')
-def login():
+@admin_bp.route('/login', methods=['GET', 'POST'])
+def admin_login():
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
         
-        # En producción, usar un sistema de autenticación más seguro
-        # Como ejemplo simple, usamos credenciales fijas
-        admin_user = os.environ.get('ADMIN_USER', 'admin')
-        admin_pass = os.environ.get('ADMIN_PASSWORD', 'password')
+        # Autenticar usuario con la base de datos
+        user = db.authenticate_user(username, password)
         
-        if username == admin_user and password == admin_pass:
+        if user:
             session['admin_logged_in'] = True
+            session['admin_id'] = user['id']
+            session['admin_role'] = user['role']
+            session['admin_name'] = user['nombre'] if 'nombre' in user else username
+            
+            flash(f'Bienvenido, {session["admin_name"]}', 'success')
             next_page = request.args.get('next', url_for('admin.dashboard'))
             return redirect(next_page)
         else:
-            flash('Credenciales incorrectas', 'error')
+            flash('Credenciales incorrectas o usuario desactivado', 'danger')
     
     return render_template('admin/login.html')
 
@@ -97,14 +129,16 @@ def dashboard():
 
 # Gestión de clientes
 @admin_bp.route('/clientes')
-@role_required(['admin', 'gestor', 'recepcion'])  # Estos roles pueden ver clientes
+@role_required(['admin', 'gestor', 'recepcion'])
 def clientes():
+    # Solo admin, gestor y recepción pueden ver clientes
     clientes = db.get_all_clientes()
     return render_template('admin/clientes.html', clientes=clientes)
 
 @admin_bp.route('/clientes/nuevo', methods=['GET', 'POST'])
-@login_required
+@role_required(['admin', 'gestor', 'recepcion'])
 def nuevo_cliente():
+    # Solo admin, gestor y recepción pueden añadir clientes
     if request.method == 'POST':
         nombre = request.form.get('nombre')
         email = request.form.get('email')
@@ -121,13 +155,68 @@ def nuevo_cliente():
     
     return render_template('admin/cliente_form.html')
 
+@admin_bp.route('/clientes/<int:cliente_id>')
+@role_required(['admin', 'gestor', 'recepcion', 'abogado'])
+def ver_cliente(cliente_id):
+    # Todos los roles pueden ver detalles de un cliente
+    # Obtener cliente de la base de datos
+    cliente = db.get_cliente_by_id(cliente_id)
+    if not cliente:
+        flash('Cliente no encontrado', 'danger')
+        return redirect(url_for('admin.clientes'))
+    
+    # Obtener citas del cliente
+    citas = db.get_citas_by_cliente(cliente_id)
+    
+    # Obtener proyectos del cliente
+    proyectos = db.get_proyectos_by_cliente(cliente_id)
+    
+    return render_template('admin/cliente_detalle.html', 
+                          cliente=cliente, 
+                          citas=citas,
+                          proyectos=proyectos)
+
+@admin_bp.route('/clientes/editar/<int:cliente_id>', methods=['GET', 'POST'])
+@role_required(['admin', 'gestor', 'recepcion'])
+def editar_cliente(cliente_id):
+    # Solo admin, gestor y recepción pueden editar clientes
+    # Obtener cliente de la base de datos
+    cliente = db.get_cliente_by_id(cliente_id)
+    if not cliente:
+        flash('Cliente no encontrado', 'danger')
+        return redirect(url_for('admin.clientes'))
+    
+    if request.method == 'POST':
+        # Obtener datos del formulario
+        nombre = request.form.get('nombre')
+        email = request.form.get('email')
+        telefono = request.form.get('telefono')
+        notas = request.form.get('notas', '')
+        
+        if not nombre or not email:
+            flash('El nombre y email son obligatorios', 'danger')
+            return render_template('admin/cliente_editar.html', cliente=cliente)
+        
+        # Actualizar cliente en la base de datos
+        db.update_cliente(cliente_id=cliente_id, 
+                         nombre=nombre, 
+                         email=email, 
+                         telefono=telefono, 
+                         notas=notas)
+        
+        flash('Cliente actualizado correctamente', 'success')
+        return redirect(url_for('admin.ver_cliente', cliente_id=cliente_id))
+    
+    return render_template('admin/cliente_editar.html', cliente=cliente)
+
 
 # Gestión de proyectos
 @admin_bp.route('/proyectos')
-@login_required
+@role_required(['admin', 'gestor', 'abogado'])
 def proyectos():
     """Vista para mostrar todos los expedientes."""
     try:
+        # Admin, gestor y abogado pueden ver expedientes
         # Obtener todos los expedientes con información del cliente
         proyectos = []
         clientes = db.get_all_clientes()
@@ -154,12 +243,167 @@ def proyectos():
         flash(f'Error al cargar expedientes: {str(e)}', 'error')
         return redirect(url_for('admin.dashboard'))
 
+@admin_bp.route('/proyectos/nuevo', methods=['GET', 'POST'])
+@role_required(['admin', 'gestor', 'abogado'])
+def nuevo_proyecto():
+    """Creación de un nuevo proyecto."""
+    try:
+        # Admin, gestor y abogado pueden crear expedientes
+        # Obtener todos los clientes para el selector
+        clientes = db.get_all_clientes()
+        
+        if request.method == 'POST':
+            # Obtener datos del formulario
+            cliente_id = request.form.get('cliente_id')
+            titulo = request.form.get('titulo')
+            descripcion = request.form.get('descripcion', '')
+            abogado = request.form.get('abogado', '')
+            estado = request.form.get('estado', 'nuevo')
+            
+            if not cliente_id or not titulo:
+                flash('El cliente y el título son obligatorios', 'danger')
+                return render_template('admin/proyecto_form.html', clientes=clientes)
+            
+            # Crear proyecto en la base de datos
+            proyecto_id = db.add_proyecto(
+                cliente_id=int(cliente_id),
+                titulo=titulo,
+                descripcion=descripcion,
+                abogado=abogado,
+                estado=estado
+            )
+            
+            flash('Expediente creado correctamente', 'success')
+            return redirect(url_for('admin.ver_proyecto', proyecto_id=proyecto_id))
+        
+        return render_template('admin/proyecto_form.html', clientes=clientes)
+    except Exception as e:
+        flash(f'Error al crear expediente: {str(e)}', 'danger')
+        return redirect(url_for('admin.proyectos'))
+
+@admin_bp.route('/proyectos/<int:proyecto_id>')
+@role_required(['admin', 'gestor', 'abogado'])
+def ver_proyecto(proyecto_id):
+    """Vista detallada de un proyecto."""
+    try:
+        # Admin, gestor y abogado pueden ver expedientes
+        # Obtener proyecto de la base de datos
+        proyecto = db.get_proyecto(proyecto_id)
+        if not proyecto:
+            flash('Expediente no encontrado', 'danger')
+            return redirect(url_for('admin.proyectos'))
+        
+        # Obtener cliente asociado
+        cliente = db.get_cliente_by_id(proyecto['cliente_id'])
+        if cliente:
+            proyecto['cliente_nombre'] = cliente['nombre']
+            proyecto['cliente_email'] = cliente['email']
+        
+        # Obtener citas del cliente
+        citas_cliente = db.get_citas_by_cliente(proyecto['cliente_id'])
+        
+        return render_template('admin/proyecto_detalle.html', 
+                              proyecto=proyecto,
+                              citas_cliente=citas_cliente)
+    except Exception as e:
+        flash(f'Error al cargar expediente: {str(e)}', 'danger')
+        return redirect(url_for('admin.proyectos'))
+
+@admin_bp.route('/proyectos/editar/<int:proyecto_id>', methods=['GET', 'POST'])
+@role_required(['admin', 'gestor', 'abogado'])
+def editar_proyecto(proyecto_id):
+    """Edición de un proyecto existente."""
+    try:
+        # Admin, gestor y abogado pueden editar expedientes
+        # Obtener proyecto de la base de datos
+        proyecto = db.get_proyecto(proyecto_id)
+        if not proyecto:
+            flash('Expediente no encontrado', 'danger')
+            return redirect(url_for('admin.proyectos'))
+        
+        # Obtener cliente asociado
+        cliente = db.get_cliente_by_id(proyecto['cliente_id'])
+        if cliente:
+            proyecto['cliente_nombre'] = cliente['nombre']
+            proyecto['cliente_email'] = cliente['email']
+        
+        if request.method == 'POST':
+            # Obtener datos del formulario
+            titulo = request.form.get('titulo')
+            descripcion = request.form.get('descripcion', '')
+            abogado = request.form.get('abogado', '')
+            estado = request.form.get('estado', 'nuevo')
+            
+            if not titulo:
+                flash('El título es obligatorio', 'danger')
+                return render_template('admin/proyecto_editar.html', proyecto=proyecto)
+            
+            # Actualizar proyecto en la base de datos
+            db.update_proyecto(
+                proyecto_id=proyecto_id,
+                titulo=titulo,
+                descripcion=descripcion,
+                abogado=abogado,
+                estado=estado
+            )
+            
+            flash('Expediente actualizado correctamente', 'success')
+            return redirect(url_for('admin.ver_proyecto', proyecto_id=proyecto_id))
+        
+        return render_template('admin/proyecto_editar.html', proyecto=proyecto)
+    except Exception as e:
+        flash(f'Error al editar expediente: {str(e)}', 'danger')
+        return redirect(url_for('admin.proyectos'))
+
+@admin_bp.route('/proyectos/<int:proyecto_id>/notas/nueva', methods=['POST'])
+@role_required(['admin', 'gestor', 'abogado'])
+def add_nota_proyecto(proyecto_id):
+    """Añade una nueva nota a un proyecto."""
+    try:
+        # Admin, gestor y abogado pueden agregar notas
+        texto = request.form.get('texto')
+        if not texto:
+            flash('El texto de la nota es obligatorio', 'danger')
+            return redirect(url_for('admin.ver_proyecto', proyecto_id=proyecto_id))
+        
+        # Añadir nota al proyecto
+        db.add_nota_proyecto(proyecto_id, texto)
+        
+        flash('Nota añadida correctamente', 'success')
+        return redirect(url_for('admin.ver_proyecto', proyecto_id=proyecto_id))
+    except Exception as e:
+        flash(f'Error al añadir nota: {str(e)}', 'danger')
+        return redirect(url_for('admin.ver_proyecto', proyecto_id=proyecto_id))
+
+@admin_bp.route('/proyectos/<int:proyecto_id>/eventos/nuevo', methods=['POST'])
+@role_required(['admin', 'gestor', 'abogado'])
+def add_evento_proyecto(proyecto_id):
+    """Añade un nuevo evento crítico a un proyecto."""
+    try:
+        # Admin, gestor y abogado pueden agregar eventos críticos
+        titulo = request.form.get('titulo')
+        fecha = request.form.get('fecha')
+        descripcion = request.form.get('descripcion', '')
+        
+        if not titulo or not fecha:
+            flash('El título y la fecha son obligatorios', 'danger')
+            return redirect(url_for('admin.ver_proyecto', proyecto_id=proyecto_id))
+        
+        # Añadir evento al proyecto
+        db.add_evento_proyecto(proyecto_id, titulo, fecha, descripcion)
+        
+        flash('Evento añadido correctamente', 'success')
+        return redirect(url_for('admin.ver_proyecto', proyecto_id=proyecto_id))
+    except Exception as e:
+        flash(f'Error al añadir evento: {str(e)}', 'danger')
+        return redirect(url_for('admin.ver_proyecto', proyecto_id=proyecto_id))
 
 
 # Gestión de calendario
 @admin_bp.route('/calendario')
-@login_required
+@role_required(['admin', 'gestor', 'recepcion', 'abogado'])
 def calendario():
+    # Todos los roles pueden ver el calendario
     return render_template('admin/calendario.html')
 
 @admin_bp.route('/api/eventos', methods=['GET'])
@@ -208,13 +452,33 @@ def api_eventos():
     
     return jsonify(calendar_events)
 
+@admin_bp.route('/calendario/sincronizar', methods=['POST'])
+@role_required(['admin', 'gestor'])
+def sincronizar_calendario():
+    """Sincroniza manualmente el calendario con Google."""
+    try:
+        # Solo admin y gestor pueden sincronizar el calendario
+        from handlers.calendar_service import sincronizar_calendario_bd
+        
+        exito, mensaje = sincronizar_calendario_bd()
+        
+        if exito:
+            flash(mensaje, 'success')
+        else:
+            flash(mensaje, 'danger')
+        
+        return redirect(url_for('admin.calendario'))
+    except Exception as e:
+        flash(f'Error al sincronizar calendario: {str(e)}', 'danger')
+        return redirect(url_for('admin.calendario'))
 
 # Gestión de citas
 @admin_bp.route('/citas')
-@login_required
+@role_required(['admin', 'gestor', 'recepcion', 'abogado'])
 def citas():
     """Vista para mostrar todas las citas."""
     try:
+        # Todos los roles pueden ver citas
         # Obtener todas las citas con información completa de clientes
         todas_citas = db.get_all_citas()
         
@@ -231,121 +495,210 @@ def citas():
         flash(f'Error al cargar citas: {str(e)}', 'error')
         return redirect(url_for('admin.dashboard'))
 
-
-
 @admin_bp.route('/citas/nueva', methods=['GET', 'POST'])
-
-
-# Integramos el blueprint en la aplicación principal
-def register_admin_blueprint(app):
-    app.register_blueprint(admin_bp)
-    
-    # Configurar ruta para archivos estáticos del admin
-    @app.route('/admin/static/<path:filename>')
-    def admin_static(filename):
-        return send_from_directory('static/admin', filename)
-    
-# API para gestión de proyectos
-@admin_bp.route('/api/proyectos', methods=['GET'])
-@login_required
-def api_proyectos():
-    """API para obtener todos los proyectos"""
+@role_required(['admin', 'gestor', 'recepcion'])
+def nueva_cita():
+    """Creación de una nueva cita."""
     try:
-        # Obtenemos todos los clientes primero para tener sus datos
+        # Admin, gestor y recepción pueden crear citas
+        # Obtener todos los clientes para el selector
         clientes = db.get_all_clientes()
-        clientes_dict = {cliente['id']: cliente for cliente in clientes}
         
-        # Ahora obtenemos todos los proyectos
-        all_proyectos = []
-        for cliente in clientes:
-            proyectos_cliente = db.get_proyectos_by_cliente(cliente['id'])
-            for proyecto in proyectos_cliente:
-                proyecto['cliente_nombre'] = cliente['nombre']
-                proyecto['cliente_email'] = cliente['email']
-                all_proyectos.append(proyecto)
-        
-        return jsonify({
-            'success': True,
-            'proyectos': all_proyectos
-        })
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-@admin_bp.route('/api/proyectos/<int:proyecto_id>', methods=['GET', 'PUT', 'DELETE'])
-@login_required
-def api_proyecto(proyecto_id):
-    """API para gestionar un proyecto específico"""
-    try:
-        if request.method == 'GET':
-            proyecto = db.get_proyecto(proyecto_id)
-            if not proyecto:
-                return jsonify({
-                    'success': False,
-                    'error': 'Proyecto no encontrado'
-                }), 404
+        if request.method == 'POST':
+            # Obtener datos del formulario
+            cliente_id = request.form.get('cliente_id')
+            tipo = request.form.get('tipo')
+            fecha = request.form.get('fecha')
+            hora = request.form.get('hora')
+            tema = request.form.get('tema', '')
             
-            # Obtener datos del cliente
-            cliente = db.get_cliente_by_id(proyecto['cliente_id'])
-            if cliente:
-                proyecto['cliente_nombre'] = cliente['nombre']
-                proyecto['cliente_email'] = cliente['email']
+            if not cliente_id or not tipo or not fecha or not hora:
+                flash('Cliente, tipo, fecha y hora son obligatorios', 'danger')
+                return render_template('admin/cita_form.html', clientes=clientes)
             
-            return jsonify({
-                'success': True,
-                'proyecto': proyecto
-            })
-        
-        elif request.method == 'PUT':
-            data = request.json
-            
-            # Validar campos requeridos
-            required_fields = ['titulo', 'estado']
-            for field in required_fields:
-                if field not in data:
-                    return jsonify({
-                        'success': False,
-                        'error': f'Campo requerido: {field}'
-                    }), 400
-            
-            # Actualizar proyecto
-            db.update_proyecto(
-                proyecto_id,
-                titulo=data['titulo'],
-                descripcion=data.get('descripcion', ''),
-                estado=data['estado'],
-                abogado=data.get('abogado', '')
+            # Crear cita en la base de datos
+            cita_id = db.add_cita(
+                cliente_id=int(cliente_id),
+                tipo=tipo,
+                fecha=fecha,
+                hora=hora,
+                tema=tema
             )
             
-            return jsonify({
-                'success': True,
-                'message': 'Proyecto actualizado correctamente'
-            })
+            flash('Cita creada correctamente', 'success')
+            return redirect(url_for('admin.ver_cita', cita_id=cita_id))
         
-        elif request.method == 'DELETE':
-            # Verificar si el proyecto existe
-            proyecto = db.get_proyecto(proyecto_id)
-            if not proyecto:
-                return jsonify({
-                    'success': False,
-                    'error': 'Proyecto no encontrado'
-                }), 404
-            
-            # Eliminar el proyecto
-            db.delete_proyecto(proyecto_id)
-            
-            return jsonify({
-                'success': True,
-                'message': 'Proyecto eliminado correctamente'
-            })
-    
+        return render_template('admin/cita_form.html', clientes=clientes)
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        flash(f'Error al crear cita: {str(e)}', 'danger')
+        return redirect(url_for('admin.citas'))
+
+@admin_bp.route('/citas/<int:cita_id>')
+@role_required(['admin', 'gestor', 'recepcion', 'abogado'])
+def ver_cita(cita_id):
+    """Vista detallada de una cita."""
+    try:
+        # Todos los roles pueden ver detalles de citas
+        # Obtener cita de la base de datos
+        cita = db.get_cita(cita_id)
+        if not cita:
+            flash('Cita no encontrada', 'danger')
+            return redirect(url_for('admin.citas'))
+        
+        return render_template('admin/cita_detalle.html', cita=cita)
+    except Exception as e:
+        flash(f'Error al cargar cita: {str(e)}', 'danger')
+        return redirect(url_for('admin.citas'))
+
+@admin_bp.route('/citas/editar/<int:cita_id>', methods=['GET', 'POST'])
+@role_required(['admin', 'gestor', 'recepcion'])
+def editar_cita(cita_id):
+    """Edición de una cita existente."""
+    try:
+        # Admin, gestor y recepción pueden editar citas
+        # Obtener cita de la base de datos
+        cita = db.get_cita(cita_id)
+        if not cita:
+            flash('Cita no encontrada', 'danger')
+            return redirect(url_for('admin.citas'))
+        
+        if request.method == 'POST':
+            # Obtener datos del formulario
+            tipo = request.form.get('tipo')
+            fecha = request.form.get('fecha')
+            hora = request.form.get('hora')
+            tema = request.form.get('tema', '')
+            estado = request.form.get('estado', 'pendiente')
+            
+            if not tipo or not fecha or not hora:
+                flash('Tipo, fecha y hora son obligatorios', 'danger')
+                return render_template('admin/cita_editar.html', cita=cita)
+            
+            # Actualizar cita en la base de datos
+            db.update_cita(
+                cita_id=cita_id,
+                tipo=tipo,
+                fecha=fecha,
+                hora=hora,
+                tema=tema,
+                estado=estado
+            )
+            
+            flash('Cita actualizada correctamente', 'success')
+            return redirect(url_for('admin.ver_cita', cita_id=cita_id))
+        
+        return render_template('admin/cita_editar.html', cita=cita)
+    except Exception as e:
+        flash(f'Error al editar cita: {str(e)}', 'danger')
+        return redirect(url_for('admin.citas'))
+
+@admin_bp.route('/citas/<int:cita_id>/cancelar', methods=['POST'])
+@role_required(['admin', 'gestor', 'recepcion'])
+def cancelar_cita(cita_id):
+    """Cancela una cita existente."""
+    try:
+        # Admin, gestor y recepción pueden cancelar citas
+        # Obtener motivo de cancelación si existe
+        motivo = request.form.get('motivo', None)
+        
+        # Obtener información de la cita antes de actualizarla
+        cita = db.get_cita(cita_id)
+        if not cita:
+            flash('Cita no encontrada', 'danger')
+            return redirect(url_for('admin.citas'))
+        
+        # Guardar datos para notificaciones
+        datos_cliente = cita['cliente']
+        fecha = cita['fecha']
+        hora = cita['hora']
+        tipo = cita['tipo']
+        
+        # Actualizar el estado de la cita a cancelada
+        db.update_cita(cita_id, estado="cancelada")
+        
+        # Enviar notificaciones
+        from handlers.email_service import enviar_correo_cancelacion, enviar_sms_cancelacion
+        
+        # Enviar email
+        try:
+            enviar_correo_cancelacion(datos_cliente, fecha, hora, tipo, motivo)
+        except Exception as e:
+            print(f"Error al enviar correo de cancelación: {str(e)}")
+        
+        # Enviar SMS si hay teléfono
+        if datos_cliente.get('telefono'):
+            try:
+                enviar_sms_cancelacion(datos_cliente['telefono'], fecha, hora, tipo, motivo)
+            except Exception as e:
+                print(f"Error al enviar SMS de cancelación: {str(e)}")
+        
+        flash(f'Cita del {fecha} a las {hora} cancelada correctamente', 'success')
+        
+        # Redireccionar según origen
+        if request.args.get('from') == 'calendar':
+            return redirect(url_for('admin.calendario'))
+        else:
+            return redirect(url_for('admin.citas'))
+    except Exception as e:
+        flash(f'Error al cancelar cita: {str(e)}', 'danger')
+        return redirect(url_for('admin.ver_cita', cita_id=cita_id))
+
+@admin_bp.route('/citas/<int:cita_id>/recordatorio', methods=['POST'])
+@role_required(['admin', 'gestor', 'recepcion'])
+def enviar_recordatorio(cita_id):
+    """Envía un recordatorio de cita al cliente."""
+    try:
+        # Admin, gestor y recepción pueden enviar recordatorios
+        # Obtener información de la cita
+        cita = db.get_cita(cita_id)
+        if not cita:
+            flash('Cita no encontrada', 'danger')
+            return redirect(url_for('admin.citas'))
+        
+        # Obtener tipo de recordatorio y mensaje personalizado
+        tipo_recordatorio = request.form.get('tipo_recordatorio', 'email')
+        mensaje_personalizado = request.form.get('mensaje_recordatorio', '')
+        
+        # Aquí iría la lógica para enviar el recordatorio por email y/o SMS
+        # Utilizamos las funciones de email y SMS existentes en la aplicación
+        
+        # Para esta demostración, simulamos el envío
+        from handlers.email_service import enviar_correo_confirmacion
+        
+        if tipo_recordatorio in ['email', 'ambos']:
+            # Intenta enviar por email
+            try:
+                enviar_correo_confirmacion(
+                    datos_cliente=cita['cliente'],
+                    fecha=cita['fecha'],
+                    hora=cita['hora'],
+                    tipo_reunion=cita['tipo'],
+                    tema_reunion=cita['tema']
+                )
+                flash('Recordatorio enviado por email', 'success')
+            except Exception as email_error:
+                flash(f'Error al enviar email: {str(email_error)}', 'warning')
+        
+        if tipo_recordatorio in ['sms', 'ambos']:
+            # Intenta enviar por SMS
+            try:
+                from handlers.email_service import enviar_sms_confirmacion
+                
+                enviar_sms_confirmacion(
+                    telefono=cita['cliente']['telefono'],
+                    fecha=cita['fecha'],
+                    hora=cita['hora'],
+                    tipo_reunion=cita['tipo'],
+                    tema_reunion=cita['tema']
+                )
+                flash('Recordatorio enviado por SMS', 'success')
+            except Exception as sms_error:
+                flash(f'Error al enviar SMS: {str(sms_error)}', 'warning')
+        
+        return redirect(url_for('admin.ver_cita', cita_id=cita_id))
+    except Exception as e:
+        flash(f'Error al enviar recordatorio: {str(e)}', 'danger')
+        return redirect(url_for('admin.ver_cita', cita_id=cita_id))
 
 # API para gestión de notas de proyectos
 @admin_bp.route('/api/proyectos/<int:proyecto_id>/notas', methods=['POST'])
@@ -594,12 +947,14 @@ def api_cita(cita_id):
             'success': False,
             'error': str(e)
         }), 500
-    
+# consultas  
+#     
 @admin_bp.route('/consultas')
-@login_required
+@role_required(['admin', 'gestor', 'abogado'])
 def consultas():
     """Vista para mostrar todas las consultas sin expediente asociado."""
     try:
+        # Admin, gestor y abogado pueden ver consultas pendientes
         # Obtener todas las consultas sin expediente
         consultas = db.get_consultas_sin_expediante()
         
@@ -609,10 +964,11 @@ def consultas():
         return redirect(url_for('admin.dashboard'))
 
 @admin_bp.route('/consultas/<int:cita_id>/crear-expediente', methods=['GET', 'POST'])
-@login_required
+@role_required(['admin', 'gestor', 'abogado'])
 def crear_expediente_desde_consulta(cita_id):
     """Crea un nuevo expediente a partir de una consulta."""
     try:
+        # Admin, gestor y abogado pueden crear expedientes desde consultas
         # Obtener detalles de la cita
         cita = db.get_cita(cita_id)
         if not cita:
@@ -644,27 +1000,10 @@ def crear_expediente_desde_consulta(cita_id):
     except Exception as e:
         flash(f'Error al procesar la consulta: {str(e)}', 'danger')
         return redirect(url_for('admin.consultas'))
+    
 
 
 
-@admin_bp.route('/calendario/sincronizar', methods=['POST'])
-@login_required
-def sincronizar_calendario():
-    """Sincroniza manualmente el calendario con Google."""
-    try:
-        from handlers.calendar_service import sincronizar_calendario_bd
-        
-        exito, mensaje = sincronizar_calendario_bd()
-        
-        if exito:
-            flash(mensaje, 'success')
-        else:
-            flash(mensaje, 'danger')
-        
-        return redirect(url_for('admin.calendario'))
-    except Exception as e:
-        flash(f'Error al sincronizar calendario: {str(e)}', 'danger')
-        return redirect(url_for('admin.calendario'))
 
 
 # Métodos adicionales necesarios para el gestor de base de datos (db_manager.py)
@@ -910,392 +1249,17 @@ def delete_cita(self, cita_id):
 
 # Implementación de las rutas faltantes en admin_routes.py
 
-@admin_bp.route('/clientes/<int:cliente_id>')
-@login_required
-def ver_cliente(cliente_id):
-    """Vista detallada de un cliente."""
-    try:
-        # Obtener cliente de la base de datos
-        cliente = db.get_cliente_by_id(cliente_id)
-        if not cliente:
-            flash('Cliente no encontrado', 'danger')
-            return redirect(url_for('admin.clientes'))
-        
-        # Obtener citas del cliente
-        citas = db.get_citas_by_cliente(cliente_id)
-        
-        # Obtener proyectos del cliente
-        proyectos = db.get_proyectos_by_cliente(cliente_id)
-        
-        return render_template('admin/cliente_detalle.html', 
-                              cliente=cliente, 
-                              citas=citas,
-                              proyectos=proyectos)
-    except Exception as e:
-        flash(f'Error al cargar cliente: {str(e)}', 'danger')
-        return redirect(url_for('admin.clientes'))
 
-@admin_bp.route('/clientes/editar/<int:cliente_id>', methods=['GET', 'POST'])
-@login_required
-def editar_cliente(cliente_id):
-    """Edición de un cliente existente."""
-    try:
-        # Obtener cliente de la base de datos
-        cliente = db.get_cliente_by_id(cliente_id)
-        if not cliente:
-            flash('Cliente no encontrado', 'danger')
-            return redirect(url_for('admin.clientes'))
-        
-        if request.method == 'POST':
-            # Obtener datos del formulario
-            nombre = request.form.get('nombre')
-            email = request.form.get('email')
-            telefono = request.form.get('telefono')
-            notas = request.form.get('notas', '')
-            
-            if not nombre or not email:
-                flash('El nombre y email son obligatorios', 'danger')
-                return render_template('admin/cliente_editar.html', cliente=cliente)
-            
-            # Actualizar cliente en la base de datos
-            db.update_cliente(cliente_id=cliente_id, 
-                             nombre=nombre, 
-                             email=email, 
-                             telefono=telefono, 
-                             notas=notas)
-            
-            flash('Cliente actualizado correctamente', 'success')
-            return redirect(url_for('admin.ver_cliente', cliente_id=cliente_id))
-        
-        return render_template('admin/cliente_editar.html', cliente=cliente)
-    except Exception as e:
-        flash(f'Error al editar cliente: {str(e)}', 'danger')
-        return redirect(url_for('admin.clientes'))
 
-@admin_bp.route('/proyectos/nuevo', methods=['GET', 'POST'])
-@login_required
-def nuevo_proyecto():
-    """Creación de un nuevo proyecto."""
-    try:
-        # Obtener todos los clientes para el selector
-        clientes = db.get_all_clientes()
-        
-        if request.method == 'POST':
-            # Obtener datos del formulario
-            cliente_id = request.form.get('cliente_id')
-            titulo = request.form.get('titulo')
-            descripcion = request.form.get('descripcion', '')
-            abogado = request.form.get('abogado', '')
-            estado = request.form.get('estado', 'nuevo')
-            
-            if not cliente_id or not titulo:
-                flash('El cliente y el título son obligatorios', 'danger')
-                return render_template('admin/proyecto_form.html', clientes=clientes)
-            
-            # Crear proyecto en la base de datos
-            proyecto_id = db.add_proyecto(
-                cliente_id=int(cliente_id),
-                titulo=titulo,
-                descripcion=descripcion,
-                abogado=abogado,
-                estado=estado
-            )
-            
-            flash('Proyecto creado correctamente', 'success')
-            return redirect(url_for('admin.ver_proyecto', proyecto_id=proyecto_id))
-        
-        return render_template('admin/proyecto_form.html', clientes=clientes)
-    except Exception as e:
-        flash(f'Error al crear proyecto: {str(e)}', 'danger')
-        return redirect(url_for('admin.proyectos'))
-
-@admin_bp.route('/proyectos/<int:proyecto_id>')
-@login_required
-def ver_proyecto(proyecto_id):
-    """Vista detallada de un proyecto."""
-    try:
-        # Obtener proyecto de la base de datos
-        proyecto = db.get_proyecto(proyecto_id)
-        if not proyecto:
-            flash('Proyecto no encontrado', 'danger')
-            return redirect(url_for('admin.proyectos'))
-        
-        # Obtener cliente asociado
-        cliente = db.get_cliente_by_id(proyecto['cliente_id'])
-        if cliente:
-            proyecto['cliente_nombre'] = cliente['nombre']
-            proyecto['cliente_email'] = cliente['email']
-        
-        # Obtener citas del cliente
-        citas_cliente = db.get_citas_by_cliente(proyecto['cliente_id'])
-        
-        return render_template('admin/proyecto_detalle.html', 
-                              proyecto=proyecto,
-                              citas_cliente=citas_cliente)
-    except Exception as e:
-        flash(f'Error al cargar proyecto: {str(e)}', 'danger')
-        return redirect(url_for('admin.proyectos'))
-
-@admin_bp.route('/proyectos/editar/<int:proyecto_id>', methods=['GET', 'POST'])
-@login_required
-def editar_proyecto(proyecto_id):
-    """Edición de un proyecto existente."""
-    try:
-        # Obtener proyecto de la base de datos
-        proyecto = db.get_proyecto(proyecto_id)
-        if not proyecto:
-            flash('Proyecto no encontrado', 'danger')
-            return redirect(url_for('admin.proyectos'))
-        
-        # Obtener cliente asociado
-        cliente = db.get_cliente_by_id(proyecto['cliente_id'])
-        if cliente:
-            proyecto['cliente_nombre'] = cliente['nombre']
-            proyecto['cliente_email'] = cliente['email']
-        
-        if request.method == 'POST':
-            # Obtener datos del formulario
-            titulo = request.form.get('titulo')
-            descripcion = request.form.get('descripcion', '')
-            abogado = request.form.get('abogado', '')
-            estado = request.form.get('estado', 'nuevo')
-            
-            if not titulo:
-                flash('El título es obligatorio', 'danger')
-                return render_template('admin/proyecto_editar.html', proyecto=proyecto)
-            
-            # Actualizar proyecto en la base de datos
-            db.update_proyecto(
-                proyecto_id=proyecto_id,
-                titulo=titulo,
-                descripcion=descripcion,
-                abogado=abogado,
-                estado=estado
-            )
-            
-            flash('Proyecto actualizado correctamente', 'success')
-            return redirect(url_for('admin.ver_proyecto', proyecto_id=proyecto_id))
-        
-        return render_template('admin/proyecto_editar.html', proyecto=proyecto)
-    except Exception as e:
-        flash(f'Error al editar proyecto: {str(e)}', 'danger')
-        return redirect(url_for('admin.proyectos'))
-
-@admin_bp.route('/proyectos/<int:proyecto_id>/notas/nueva', methods=['POST'])
-@login_required
-def add_nota_proyecto(proyecto_id):
-    """Añade una nueva nota a un proyecto."""
-    try:
-        texto = request.form.get('texto')
-        if not texto:
-            flash('El texto de la nota es obligatorio', 'danger')
-            return redirect(url_for('admin.ver_proyecto', proyecto_id=proyecto_id))
-        
-        # Añadir nota al proyecto
-        db.add_nota_proyecto(proyecto_id, texto)
-        
-        flash('Nota añadida correctamente', 'success')
-        return redirect(url_for('admin.ver_proyecto', proyecto_id=proyecto_id))
-    except Exception as e:
-        flash(f'Error al añadir nota: {str(e)}', 'danger')
-        return redirect(url_for('admin.ver_proyecto', proyecto_id=proyecto_id))
-
-@admin_bp.route('/proyectos/<int:proyecto_id>/eventos/nuevo', methods=['POST'])
-@login_required
-def add_evento_proyecto(proyecto_id):
-    """Añade un nuevo evento crítico a un proyecto."""
-    try:
-        titulo = request.form.get('titulo')
-        fecha = request.form.get('fecha')
-        descripcion = request.form.get('descripcion', '')
-        
-        if not titulo or not fecha:
-            flash('El título y la fecha son obligatorios', 'danger')
-            return redirect(url_for('admin.ver_proyecto', proyecto_id=proyecto_id))
-        
-        # Añadir evento al proyecto
-        db.add_evento_proyecto(proyecto_id, titulo, fecha, descripcion)
-        
-        flash('Evento añadido correctamente', 'success')
-        return redirect(url_for('admin.ver_proyecto', proyecto_id=proyecto_id))
-    except Exception as e:
-        flash(f'Error al añadir evento: {str(e)}', 'danger')
-        return redirect(url_for('admin.ver_proyecto', proyecto_id=proyecto_id))
-
-@admin_bp.route('/citas/nueva', methods=['GET', 'POST'])
-@login_required
-def nueva_cita():
-    """Creación de una nueva cita."""
-    try:
-        # Obtener todos los clientes para el selector
-        clientes = db.get_all_clientes()
-        
-        if request.method == 'POST':
-            # Obtener datos del formulario
-            cliente_id = request.form.get('cliente_id')
-            tipo = request.form.get('tipo')
-            fecha = request.form.get('fecha')
-            hora = request.form.get('hora')
-            tema = request.form.get('tema', '')
-            
-            if not cliente_id or not tipo or not fecha or not hora:
-                flash('Cliente, tipo, fecha y hora son obligatorios', 'danger')
-                return render_template('admin/cita_form.html', clientes=clientes)
-            
-            # Crear cita en la base de datos
-            cita_id = db.add_cita(
-                cliente_id=int(cliente_id),
-                tipo=tipo,
-                fecha=fecha,
-                hora=hora,
-                tema=tema
-            )
-            
-            flash('Cita creada correctamente', 'success')
-            return redirect(url_for('admin.ver_cita', cita_id=cita_id))
-        
-        return render_template('admin/cita_form.html', clientes=clientes)
-    except Exception as e:
-        flash(f'Error al crear cita: {str(e)}', 'danger')
-        return redirect(url_for('admin.citas'))
-
-@admin_bp.route('/citas/<int:cita_id>')
-@login_required
-def ver_cita(cita_id):
-    """Vista detallada de una cita."""
-    try:
-        # Obtener cita de la base de datos
-        cita = db.get_cita(cita_id)
-        if not cita:
-            flash('Cita no encontrada', 'danger')
-            return redirect(url_for('admin.citas'))
-        
-        return render_template('admin/cita_detalle.html', cita=cita)
-    except Exception as e:
-        flash(f'Error al cargar cita: {str(e)}', 'danger')
-        return redirect(url_for('admin.citas'))
-
-@admin_bp.route('/citas/editar/<int:cita_id>', methods=['GET', 'POST'])
-@login_required
-def editar_cita(cita_id):
-    """Edición de una cita existente."""
-    try:
-        # Obtener cita de la base de datos
-        cita = db.get_cita(cita_id)
-        if not cita:
-            flash('Cita no encontrada', 'danger')
-            return redirect(url_for('admin.citas'))
-        
-        if request.method == 'POST':
-            # Obtener datos del formulario
-            tipo = request.form.get('tipo')
-            fecha = request.form.get('fecha')
-            hora = request.form.get('hora')
-            tema = request.form.get('tema', '')
-            estado = request.form.get('estado', 'pendiente')
-            
-            if not tipo or not fecha or not hora:
-                flash('Tipo, fecha y hora son obligatorios', 'danger')
-                return render_template('admin/cita_editar.html', cita=cita)
-            
-            # Actualizar cita en la base de datos
-            db.update_cita(
-                cita_id=cita_id,
-                tipo=tipo,
-                fecha=fecha,
-                hora=hora,
-                tema=tema,
-                estado=estado
-            )
-            
-            flash('Cita actualizada correctamente', 'success')
-            return redirect(url_for('admin.ver_cita', cita_id=cita_id))
-        
-        return render_template('admin/cita_editar.html', cita=cita)
-    except Exception as e:
-        flash(f'Error al editar cita: {str(e)}', 'danger')
-        return redirect(url_for('admin.citas'))
-
-@admin_bp.route('/citas/<int:cita_id>/cancelar', methods=['POST'])
-@login_required
-def cancelar_cita(cita_id):
-    """Cancela una cita existente."""
-    try:
-        # Actualizar el estado de la cita a cancelada
-        db.update_cita(cita_id, estado="cancelada")
-        
-        # Obtener información de la cita para el mensaje
-        cita = db.get_cita(cita_id)
-        
-        flash(f'Cita del {cita["fecha"]} a las {cita["hora"]} cancelada correctamente', 'success')
-        return redirect(url_for('admin.citas'))
-    except Exception as e:
-        flash(f'Error al cancelar cita: {str(e)}', 'danger')
-        return redirect(url_for('admin.ver_cita', cita_id=cita_id))
-
-@admin_bp.route('/citas/<int:cita_id>/recordatorio', methods=['POST'])
-@login_required
-def enviar_recordatorio(cita_id):
-    """Envía un recordatorio de cita al cliente."""
-    try:
-        # Obtener información de la cita
-        cita = db.get_cita(cita_id)
-        if not cita:
-            flash('Cita no encontrada', 'danger')
-            return redirect(url_for('admin.citas'))
-        
-        # Obtener tipo de recordatorio y mensaje personalizado
-        tipo_recordatorio = request.form.get('tipo_recordatorio', 'email')
-        mensaje_personalizado = request.form.get('mensaje_recordatorio', '')
-        
-        # Aquí iría la lógica para enviar el recordatorio por email y/o SMS
-        # Utilizamos las funciones de email y SMS existentes en la aplicación
-        
-        # Para esta demostración, simulamos el envío
-        from handlers.email_service import enviar_correo_confirmacion
-        
-        if tipo_recordatorio in ['email', 'ambos']:
-            # Intenta enviar por email
-            try:
-                enviar_correo_confirmacion(
-                    datos_cliente=cita['cliente'],
-                    fecha=cita['fecha'],
-                    hora=cita['hora'],
-                    tipo_reunion=cita['tipo'],
-                    tema_reunion=cita['tema']
-                )
-                flash('Recordatorio enviado por email', 'success')
-            except Exception as email_error:
-                flash(f'Error al enviar email: {str(email_error)}', 'warning')
-        
-        if tipo_recordatorio in ['sms', 'ambos']:
-            # Intenta enviar por SMS
-            try:
-                from handlers.email_service import enviar_sms_confirmacion
-                
-                enviar_sms_confirmacion(
-                    telefono=cita['cliente']['telefono'],
-                    fecha=cita['fecha'],
-                    hora=cita['hora'],
-                    tipo_reunion=cita['tipo'],
-                    tema_reunion=cita['tema']
-                )
-                flash('Recordatorio enviado por SMS', 'success')
-            except Exception as sms_error:
-                flash(f'Error al enviar SMS: {str(sms_error)}', 'warning')
-        
-        return redirect(url_for('admin.ver_cita', cita_id=cita_id))
-    except Exception as e:
-        flash(f'Error al enviar recordatorio: {str(e)}', 'danger')
-        return redirect(url_for('admin.ver_cita', cita_id=cita_id))
 
 # Rutas para gestión de usuarios a añadir en admin_routes.py
 
 @admin_bp.route('/usuarios')
-@role_required('admin')  # Solo admin puede gestionar usuarios
+@role_required('admin')
 def usuarios():
     """Vista para mostrar todos los usuarios del sistema."""
     try:
+        # Solo admin puede gestionar usuarios
         # Obtener todos los usuarios
         usuarios = db.get_all_usuarios()
         
@@ -1303,19 +1267,14 @@ def usuarios():
     except Exception as e:
         flash(f'Error al cargar usuarios: {str(e)}', 'danger')
         return redirect(url_for('admin.dashboard'))
-    
 
 
 @admin_bp.route('/usuarios/nuevo', methods=['GET', 'POST'])
-@login_required
+@role_required('admin')
 def nuevo_usuario():
     """Creación de un nuevo usuario."""
     try:
-        # Verificar que el usuario actual es admin
-        if session.get('admin_role') != 'admin':
-            flash('No tienes permisos para acceder a esta sección', 'danger')
-            return redirect(url_for('admin.dashboard'))
-        
+        # Solo admin puede crear usuarios
         if request.method == 'POST':
             # Obtener datos del formulario
             username = request.form.get('username')
@@ -1326,7 +1285,7 @@ def nuevo_usuario():
             
             if not username or not password or not nombre or not email:
                 flash('Todos los campos son obligatorios', 'danger')
-                return render_template('admin/usuario_form.html')
+                return render_template('admin/usuarios_form.html')
             
             # Crear usuario en la base de datos
             usuario_id = db.add_usuario(
@@ -1342,23 +1301,19 @@ def nuevo_usuario():
                 return redirect(url_for('admin.usuarios'))
             else:
                 flash('Error al crear el usuario. El nombre de usuario o email ya existe.', 'danger')
-                return render_template('admin/usuario_form.html')
+                return render_template('admin/usuarios_form.html')
         
-        return render_template('admin/usuario_form.html')
+        return render_template('admin/usuarios_form.html')
     except Exception as e:
         flash(f'Error al crear usuario: {str(e)}', 'danger')
         return redirect(url_for('admin.usuarios'))
 
 @admin_bp.route('/usuarios/editar/<int:usuario_id>', methods=['GET', 'POST'])
-@login_required
+@role_required('admin')
 def editar_usuario(usuario_id):
     """Edición de un usuario existente."""
     try:
-        # Verificar que el usuario actual es admin
-        if session.get('admin_role') != 'admin':
-            flash('No tienes permisos para acceder a esta sección', 'danger')
-            return redirect(url_for('admin.dashboard'))
-        
+        # Solo admin puede editar usuarios
         # Obtener usuario de la base de datos
         usuario = db.get_usuario_by_id(usuario_id)
         if not usuario:
@@ -1367,20 +1322,24 @@ def editar_usuario(usuario_id):
         
         if request.method == 'POST':
             # Obtener datos del formulario
-            username = request.form.get('username')
-            password = request.form.get('password')
             nombre = request.form.get('nombre')
             email = request.form.get('email')
             role = request.form.get('role', 'user')
             activo = request.form.get('activo') == 'on'
+            password = request.form.get('password')
+            confirm_password = request.form.get('confirm_password')
             
-            if not username or not nombre or not email:
-                flash('Username, nombre y email son obligatorios', 'danger')
-                return render_template('admin/usuario_editar.html', usuario=usuario)
+            if not nombre or not email:
+                flash('Nombre y email son obligatorios', 'danger')
+                return render_template('admin/usuarios_form.html', usuario=usuario)
             
-            # Actualizar usuario en la base de datos
+            # Verificar que las contraseñas coincidan si se proporciona una nueva
+            if password and password != confirm_password:
+                flash('Las contraseñas no coinciden', 'danger')
+                return render_template('admin/usuarios_form.html', usuario=usuario)
+            
+            # Preparar datos para actualización
             kwargs = {
-                'username': username,
                 'nombre': nombre,
                 'email': email,
                 'role': role,
@@ -1391,26 +1350,23 @@ def editar_usuario(usuario_id):
             if password:
                 kwargs['password'] = password
             
+            # Actualizar usuario en la base de datos
             db.update_usuario(usuario_id, **kwargs)
             
             flash('Usuario actualizado correctamente', 'success')
             return redirect(url_for('admin.usuarios'))
         
-        return render_template('admin/usuario_editar.html', usuario=usuario)
+        return render_template('admin/usuarios_form.html', usuario=usuario)
     except Exception as e:
         flash(f'Error al editar usuario: {str(e)}', 'danger')
         return redirect(url_for('admin.usuarios'))
 
 @admin_bp.route('/usuarios/eliminar/<int:usuario_id>', methods=['POST'])
-@login_required
+@role_required('admin')
 def eliminar_usuario(usuario_id):
     """Elimina un usuario del sistema."""
     try:
-        # Verificar que el usuario actual es admin
-        if session.get('admin_role') != 'admin':
-            flash('No tienes permisos para acceder a esta sección', 'danger')
-            return redirect(url_for('admin.dashboard'))
-        
+        # Solo admin puede eliminar usuarios
         # No permitir eliminar el propio usuario
         if usuario_id == session.get('admin_id'):
             flash('No puedes eliminar tu propio usuario', 'danger')
@@ -1428,6 +1384,342 @@ def eliminar_usuario(usuario_id):
     except Exception as e:
         flash(f'Error al eliminar usuario: {str(e)}', 'danger')
         return redirect(url_for('admin.usuarios'))
+
+
+# Api sincronizacion
+
+@admin_bp.route('/api/sync_database', methods=['POST'])
+@role_required('admin')
+def sync_database():
+    """
+    Sincroniza los datos entre las estructuras en memoria y la base de datos SQLite.
+    Esta ruta se puede llamar periódicamente o después de cambios importantes.
+    """
+    try:
+        # Solo admin puede sincronizar la base de datos
+        from config import clientes_db, citas_db, casos_db
+        db.import_from_memory(clientes_db, citas_db, casos_db)
+        return jsonify({"success": True, "message": "Base de datos sincronizada correctamente"})
+    except Exception as e:
+        logger.error(f"Error al sincronizar base de datos: {str(e)}")
+        return jsonify({"success": False, "message": f"Error al sincronizar: {str(e)}"})
+
+@admin_bp.route('/api/proyectos', methods=['GET'])
+@login_required
+def api_proyectos():
+    """API para obtener todos los proyectos"""
+    try:
+        # Cualquier usuario autenticado puede acceder a la API
+        # Obtenemos todos los clientes primero para tener sus datos
+        clientes = db.get_all_clientes()
+        clientes_dict = {cliente['id']: cliente for cliente in clientes}
+        
+        # Ahora obtenemos todos los proyectos
+        all_proyectos = []
+        for cliente in clientes:
+            proyectos_cliente = db.get_proyectos_by_cliente(cliente['id'])
+            for proyecto in proyectos_cliente:
+                proyecto['cliente_nombre'] = cliente['nombre']
+                proyecto['cliente_email'] = cliente['email']
+                all_proyectos.append(proyecto)
+        
+        return jsonify({
+            'success': True,
+            'proyectos': all_proyectos
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@admin_bp.route('/api/proyectos/<int:proyecto_id>', methods=['GET', 'PUT', 'DELETE'])
+@role_required(['admin', 'gestor', 'abogado'])
+def api_proyecto(proyecto_id):
+    """API para gestionar un proyecto específico"""
+    try:
+        if request.method == 'GET':
+            proyecto = db.get_proyecto(proyecto_id)
+            if not proyecto:
+                return jsonify({
+                    'success': False,
+                    'error': 'Proyecto no encontrado'
+                }), 404
+            
+            # Obtener datos del cliente
+            cliente = db.get_cliente_by_id(proyecto['cliente_id'])
+            if cliente:
+                proyecto['cliente_nombre'] = cliente['nombre']
+                proyecto['cliente_email'] = cliente['email']
+            
+            return jsonify({
+                'success': True,
+                'proyecto': proyecto
+            })
+        
+        elif request.method == 'PUT':
+            # Solo admin, gestor y abogado pueden actualizar proyectos
+            data = request.json
+            
+            # Validar campos requeridos
+            required_fields = ['titulo', 'estado']
+            for field in required_fields:
+                if field not in data:
+                    return jsonify({
+                        'success': False,
+                        'error': f'Campo requerido: {field}'
+                    }), 400
+            
+            # Actualizar proyecto
+            db.update_proyecto(
+                proyecto_id,
+                titulo=data['titulo'],
+                descripcion=data.get('descripcion', ''),
+                estado=data['estado'],
+                abogado=data.get('abogado', '')
+            )
+            
+            return jsonify({
+                'success': True,
+                'message': 'Proyecto actualizado correctamente'
+            })
+        
+        elif request.method == 'DELETE':
+            # Solo admin puede eliminar proyectos
+            if session.get('admin_role') != 'admin':
+                return jsonify({
+                    'success': False,
+                    'error': 'No tienes permisos para eliminar proyectos'
+                }), 403
+                
+            # Verificar si el proyecto existe
+            proyecto = db.get_proyecto(proyecto_id)
+            if not proyecto:
+                return jsonify({
+                    'success': False,
+                    'error': 'Proyecto no encontrado'
+                }), 404
+            
+            # Eliminar el proyecto
+            db.delete_proyecto(proyecto_id)
+            
+            return jsonify({
+                'success': True,
+                'message': 'Proyecto eliminado correctamente'
+            })
+    
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@admin_bp.route('/api/citas', methods=['GET'])
+@login_required
+def api_citas():
+    """API para obtener todas las citas"""
+    try:
+        # Obtener todas las citas con sus respectivos clientes
+        citas = db.get_all_citas()
+        
+        return jsonify({
+            'success': True,
+            'citas': citas
+        })
+    
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@admin_bp.route('/api/citas/<int:cita_id>', methods=['GET', 'PUT', 'DELETE'])
+@role_required(['admin', 'gestor', 'recepcion'])
+def api_cita(cita_id):
+    """API para gestionar una cita específica"""
+    try:
+        if request.method == 'GET':
+            cita = db.get_cita(cita_id)
+            if not cita:
+                return jsonify({
+                    'success': False,
+                    'error': 'Cita no encontrada'
+                }), 404
+            
+            return jsonify({
+                'success': True,
+                'cita': cita
+            })
+        
+        elif request.method == 'PUT':
+            # Solo admin, gestor y recepción pueden actualizar citas
+            data = request.json
+            
+            # Actualizar cita
+            db.update_cita(
+                cita_id,
+                tipo=data.get('tipo'),
+                fecha=data.get('fecha'),
+                hora=data.get('hora'),
+                tema=data.get('tema'),
+                estado=data.get('estado')
+            )
+            
+            return jsonify({
+                'success': True,
+                'message': 'Cita actualizada correctamente'
+            })
+        
+        elif request.method == 'DELETE':
+            # Solo admin puede eliminar citas
+            if session.get('admin_role') != 'admin':
+                return jsonify({
+                    'success': False,
+                    'error': 'No tienes permisos para eliminar citas'
+                }), 403
+                
+            # Eliminar la cita
+            db.delete_cita(cita_id)
+            
+            return jsonify({
+                'success': True,
+                'message': 'Cita eliminada correctamente'
+            })
+    
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@admin_bp.route('/api/notas/<int:nota_id>', methods=['DELETE'])
+@role_required(['admin', 'gestor', 'abogado'])
+def api_delete_nota(nota_id):
+    """API para eliminar una nota"""
+    try:
+        # Admin, gestor y abogado pueden eliminar notas
+        # Eliminar la nota
+        db.delete_nota_proyecto(nota_id)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Nota eliminada correctamente'
+        })
+    
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@admin_bp.route('/api/eventos/<int:evento_id>', methods=['PUT', 'DELETE'])
+@role_required(['admin', 'gestor', 'abogado'])
+def api_evento_crud(evento_id):
+    """API para actualizar o eliminar un evento crítico"""
+    try:
+        if request.method == 'PUT':
+            # Admin, gestor y abogado pueden actualizar eventos
+            data = request.json
+            
+            # Actualizar evento
+            kwargs = {}
+            if 'titulo' in data:
+                kwargs['titulo'] = data['titulo']
+            if 'fecha' in data:
+                kwargs['fecha'] = data['fecha']
+            if 'descripcion' in data:
+                kwargs['descripcion'] = data['descripcion']
+            
+            # Manejar el estado completado separadamente
+            completado = data.get('completado')
+            
+            db.update_evento_proyecto(evento_id, completado, **kwargs)
+            
+            return jsonify({
+                'success': True,
+                'message': 'Evento actualizado correctamente'
+            })
+        
+        elif request.method == 'DELETE':
+            # Admin, gestor y abogado pueden eliminar eventos
+            # Eliminar el evento
+            db.delete_evento_proyecto(evento_id)
+            
+            return jsonify({
+                'success': True,
+                'message': 'Evento eliminado correctamente'
+            })
+    
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+#perfil de usuario 
+
+@admin_bp.route('/perfil')
+@login_required
+def admin_perfil():
+    """Muestra el perfil del usuario actual"""
+    user_id = session.get('admin_id')
+    if not user_id:
+        return redirect(url_for('admin.admin_login'))
+    
+    try:
+        # Obtener datos del usuario
+        usuario = db.get_usuario_by_id(user_id)
+        if not usuario:
+            flash('Información de usuario no encontrada', 'danger')
+            return redirect(url_for('admin.dashboard'))
+        
+        return render_template('admin/perfil.html', usuario=usuario)
+    except Exception as e:
+        flash(f'Error al cargar perfil: {str(e)}', 'danger')
+        return redirect(url_for('admin.dashboard'))
+
+@admin_bp.route('/perfil/cambiar-password', methods=['POST'])
+@login_required
+def cambiar_password():
+    """Permite al usuario cambiar su propia contraseña"""
+    user_id = session.get('admin_id')
+    if not user_id:
+        return redirect(url_for('admin.admin_login'))
+    
+    try:
+        # Obtener datos del formulario
+        password_actual = request.form.get('password_actual')
+        password_nueva = request.form.get('password_nueva')
+        password_confirmar = request.form.get('password_confirmar')
+        
+        # Verificar que todos los campos estén completos
+        if not password_actual or not password_nueva or not password_confirmar:
+            flash('Todos los campos son obligatorios', 'danger')
+            return redirect(url_for('admin.admin_perfil'))
+        
+        # Verificar que las contraseñas nuevas coincidan
+        if password_nueva != password_confirmar:
+            flash('Las contraseñas nuevas no coinciden', 'danger')
+            return redirect(url_for('admin.admin_perfil'))
+        
+        # Verificar la contraseña actual
+        import bcrypt
+        usuario = db.get_usuario_by_id(user_id)
+        
+        if not bcrypt.checkpw(password_actual.encode('utf-8'), usuario['password'].encode('utf-8')):
+            flash('La contraseña actual es incorrecta', 'danger')
+            return redirect(url_for('admin.admin_perfil'))
+        
+        # Actualizar contraseña
+        db.update_usuario(user_id, password=password_nueva)
+        
+        flash('Contraseña actualizada correctamente', 'success')
+        return redirect(url_for('admin.admin_perfil'))
+    except Exception as e:
+        flash(f'Error al cambiar contraseña: {str(e)}', 'danger')
+        return redirect(url_for('admin.admin_perfil'))
+
+
 
 # Modificar la ruta de login para usar el nuevo sistema de autenticación
 @admin_bp.route('/login', methods=['GET', 'POST'])

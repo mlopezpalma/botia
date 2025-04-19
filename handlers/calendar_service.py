@@ -50,7 +50,7 @@ def get_google_calendar_service():
 def obtener_horarios_disponibles(fecha, tipo_reunion):
     """
     Obtiene los horarios disponibles para la fecha y tipo de reunión especificados.
-    Usa la API real de Google Calendar.
+    Usa tanto la API de Google Calendar como la base de datos local para verificar disponibilidad.
     
     Args:
         fecha: Fecha en formato datetime o string "YYYY-MM-DD"
@@ -66,19 +66,75 @@ def obtener_horarios_disponibles(fecha, tipo_reunion):
     # Ajustar fecha para que sea solo la parte de la fecha
     fecha_dt = fecha.replace(hour=0, minute=0, second=0, microsecond=0)
     
+    # Obtener la fecha y hora actual
+    ahora = datetime.datetime.now()
+    
     # Si es fin de semana, no hay horarios disponibles
     if fecha_dt.weekday() >= 5:  # 5=Sábado, 6=Domingo
         logger.debug(f"Día {fecha_dt.strftime('%Y-%m-%d')} es fin de semana, sin horarios disponibles")
         return []
-    
-    # Obtener la fecha y hora actual
-    ahora = datetime.datetime.now()
     
     # Si la fecha es anterior a hoy, no hay horarios disponibles
     if fecha_dt.date() < ahora.date():
         logger.debug(f"Fecha {fecha_dt.strftime('%Y-%m-%d')} es anterior a hoy, sin horarios disponibles")
         return []
     
+    # Obtener los horarios para el tipo de reunión específico
+    horarios_manana = HORARIOS_POR_TIPO[tipo_reunion]["manana"]
+    horarios_tarde = HORARIOS_POR_TIPO[tipo_reunion]["tarde"]
+    horarios_completos = horarios_manana + horarios_tarde
+    
+    # Inicializar lista de horas ocupadas
+    horas_ocupadas = []
+    
+    # PASO 1: Obtener eventos de la base de datos primero
+    try:
+        from db_manager import DatabaseManager
+        db = DatabaseManager()
+        fecha_str = fecha_dt.strftime("%Y-%m-%d")
+        
+        # Obtener todos los eventos para el día de la base de datos
+        db_events = db.get_all_calendar_events(fecha_str, fecha_str)
+        logger.debug(f"Eventos encontrados en base de datos: {len(db_events)}")
+        
+        for evento in db_events:
+            if 'start' in evento:
+                # Extraer hora de inicio del evento
+                start_time = evento['start'].split('T')[1][:5]  # Formato HH:MM
+                
+                # Determinar duración del evento
+                duracion_evento = 30  # Valor por defecto
+                
+                if 'type' in evento and evento['type'] == 'appointment':
+                    # Usar duración específica basada en el tipo de cita
+                    tipo_evento = evento.get('appointment_type', tipo_reunion)
+                    if tipo_evento in TIPOS_REUNION:
+                        duracion_evento = TIPOS_REUNION[tipo_evento]["duracion_real"]
+                
+                logger.debug(f"Evento de BD: {start_time}, duración: {duracion_evento} min, tipo: {evento.get('type', 'desconocido')}")
+                
+                # Para cada horario disponible, verificar solapamiento con este evento
+                for hora_str in horarios_completos:
+                    hora, minutos = map(int, hora_str.split(':'))
+                    cita_inicio = fecha_dt.replace(hour=hora, minute=minutos)
+                    cita_fin = cita_inicio + datetime.timedelta(minutes=TIPOS_REUNION[tipo_reunion]["duracion_real"])
+                    
+                    # Calcular inicio y fin del evento
+                    hora_evento, minutos_evento = map(int, start_time.split(':'))
+                    evento_inicio = fecha_dt.replace(hour=hora_evento, minute=minutos_evento)
+                    evento_fin = evento_inicio + datetime.timedelta(minutes=duracion_evento)
+                    
+                    # Verificar si hay solapamiento
+                    if max(cita_inicio, evento_inicio) < min(cita_fin, evento_fin):
+                        if hora_str not in horas_ocupadas:
+                            horas_ocupadas.append(hora_str)
+                            logger.debug(f"Hora ocupada por evento de BD: {hora_str}")
+    except Exception as e:
+        logger.warning(f"Error al obtener eventos de BD: {str(e)}")
+        import traceback
+        logger.warning(traceback.format_exc())
+    
+    # PASO 2: Obtener eventos de Google Calendar si está disponible
     try:
         # Obtener servicio de calendario
         service = get_google_calendar_service()
@@ -96,29 +152,7 @@ def obtener_horarios_disponibles(fecha, tipo_reunion):
             orderBy='startTime'
         ).execute()
         
-        # Obtener también eventos de la base de datos SQLite
-        # Esto asegura consistencia entre ambos sistemas
-        db_eventos = []
-        try:
-            from db_manager import DatabaseManager
-            db = DatabaseManager()
-            db_events = db.get_all_calendar_events(fecha_dt.strftime("%Y-%m-%d"), fecha_dt.strftime("%Y-%m-%d"))
-            
-            # Convertir eventos de BD al mismo formato de horas ocupadas
-            for evento in db_events:
-                if 'start' in evento:
-                    hora_inicio = evento['start'].split('T')[1][:5]  # Extraer HH:MM
-                    db_eventos.append(hora_inicio)
-        except Exception as e:
-            logger.warning(f"Error al obtener eventos de BD: {e}. Continuando solo con Google Calendar.")
-        
-        # Obtener los horarios para el tipo de reunión específico
-        horarios_manana = HORARIOS_POR_TIPO[tipo_reunion]["manana"]
-        horarios_tarde = HORARIOS_POR_TIPO[tipo_reunion]["tarde"]
-        horarios_completos = horarios_manana + horarios_tarde
-        
-        # Extraer horas ocupadas
-        horas_ocupadas = []
+        logger.debug(f"Eventos encontrados en Google Calendar: {len(eventos.get('items', []))}")
         
         for evento in eventos.get('items', []):
             inicio = evento['start'].get('dateTime', evento['start'].get('date'))
@@ -134,67 +168,66 @@ def obtener_horarios_disponibles(fecha, tipo_reunion):
                 inicio_dt = inicio_dt.replace(tzinfo=None)
                 fin_dt = fin_dt.replace(tzinfo=None)
                 
+                logger.debug(f"Evento de Google: {inicio_dt.strftime('%H:%M')} - {fin_dt.strftime('%H:%M')}")
+                
                 # Verificar solape con cada horario disponible
                 for hora_str in horarios_completos:
+                    if hora_str in horas_ocupadas:
+                        continue  # Ya está marcado como ocupado, saltar
+                    
                     hora, minutos = map(int, hora_str.split(':'))
                     hora_dt = fecha_dt.replace(hour=hora, minute=minutos)
                     duracion_minutos = TIPOS_REUNION[tipo_reunion]["duracion_real"]
                     fin_hora_dt = hora_dt + datetime.timedelta(minutes=duracion_minutos)
                     
                     # Comprobar superposición
-                    if (inicio_dt <= hora_dt < fin_dt or 
-                        inicio_dt < fin_hora_dt <= fin_dt or
-                        (hora_dt <= inicio_dt and fin_dt <= fin_hora_dt)):
+                    if max(hora_dt, inicio_dt) < min(fin_hora_dt, fin_dt):
                         horas_ocupadas.append(hora_str)
-        
-        # Añadir las horas ocupadas de la base de datos
-        horas_ocupadas.extend(db_eventos)
-        
-        # Filtrar horarios disponibles
-        horarios_disponibles = []
-        for hora in horarios_completos:
-            if hora not in horas_ocupadas:
-                # Verificar que no se extienda más allá del horario laboral
-                hora_dt = datetime.datetime.strptime(hora, "%H:%M")
-                duracion = TIPOS_REUNION[tipo_reunion]["duracion_real"]
-                hora_fin = hora_dt + datetime.timedelta(minutes=duracion)
-                hora_fin_str = hora_fin.strftime("%H:%M")
-                
-                # Verificar horario de mañana y tarde
-                if hora in horarios_manana and hora_fin_str <= "13:00":
-                    horarios_disponibles.append(hora)
-                elif hora in horarios_tarde and hora_fin_str <= "19:00":
-                    horarios_disponibles.append(hora)
-        
-        # Verificar si la fecha es hoy y excluir horarios pasados
-        es_hoy = fecha_dt.date() == ahora.date()
-        
-        if es_hoy:
-            horarios_disponibles_filtrados = []
-            for hora in horarios_disponibles:
-                # Convertir la hora a objeto time para comparar
-                hora_partes = hora.split(':')
-                hora_obj = int(hora_partes[0])
-                minutos_obj = int(hora_partes[1])
-                
-                # Convertir a minutos para comparación más sencilla
-                minutos_actuales = ahora.hour * 60 + ahora.minute + 30  # Añadir 30 min de margen mínimo
-                minutos_hora = hora_obj * 60 + minutos_obj
-                
-                # Si es hora futura con margen mínimo de 30 min, incluirla
-                if minutos_hora > minutos_actuales:
-                    horarios_disponibles_filtrados.append(hora)
-            
-            logger.debug(f"Fecha es hoy, filtrando horarios pasados. Disponibles: {horarios_disponibles_filtrados}")
-            return horarios_disponibles_filtrados
-        else:
-            logger.debug(f"Horarios disponibles para {fecha_dt.strftime('%Y-%m-%d')}: {horarios_disponibles}")
-            return horarios_disponibles
-        
+                        logger.debug(f"Hora ocupada por evento de Google: {hora_str}")
     except Exception as e:
-        logger.error(f"Error al obtener horarios de Google Calendar: {str(e)}")
-        # En caso de error, devolver una respuesta simulada
-        return _obtener_horarios_simulados(fecha, tipo_reunion)
+        logger.warning(f"Error al obtener eventos de Google Calendar: {str(e)}")
+        # Continuamos con los eventos que ya obtuvimos de la BD
+    
+    # PASO 3: Filtrar horarios disponibles basado en horas ocupadas
+    horarios_disponibles = []
+    for hora in horarios_completos:
+        if hora not in horas_ocupadas:
+            # Verificar que no se extiende más allá del horario laboral
+            hora_dt = datetime.datetime.strptime(hora, "%H:%M")
+            duracion = TIPOS_REUNION[tipo_reunion]["duracion_real"]
+            hora_fin = hora_dt + datetime.timedelta(minutes=duracion)
+            hora_fin_str = hora_fin.strftime("%H:%M")
+            
+            # Verificar horario de mañana y tarde
+            if hora in horarios_manana and hora_fin_str <= "13:00":
+                horarios_disponibles.append(hora)
+            elif hora in horarios_tarde and hora_fin_str <= "19:00":
+                horarios_disponibles.append(hora)
+    
+    # PASO 4: Si la fecha es hoy, filtrar horarios pasados
+    es_hoy = fecha_dt.date() == ahora.date()
+    
+    if es_hoy:
+        horarios_disponibles_filtrados = []
+        for hora in horarios_disponibles:
+            # Convertir la hora a objeto time para comparar
+            hora_partes = hora.split(':')
+            hora_obj = int(hora_partes[0])
+            minutos_obj = int(hora_partes[1])
+            
+            # Convertir a minutos para comparación más sencilla
+            minutos_actuales = ahora.hour * 60 + ahora.minute + 30  # Añadir 30 min de margen mínimo
+            minutos_hora = hora_obj * 60 + minutos_obj
+            
+            # Si es hora futura con margen mínimo de 30 min, incluirla
+            if minutos_hora > minutos_actuales:
+                horarios_disponibles_filtrados.append(hora)
+        
+        logger.debug(f"Fecha es hoy, filtrando horarios pasados. Disponibles: {horarios_disponibles_filtrados}")
+        return horarios_disponibles_filtrados
+    else:
+        logger.debug(f"Horarios disponibles para {fecha_dt.strftime('%Y-%m-%d')}: {horarios_disponibles}")
+        return horarios_disponibles
     
 def encontrar_proxima_fecha_disponible(tipo_reunion):
     """
