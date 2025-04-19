@@ -45,11 +45,17 @@
 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
     <h1 class="h2">Calendario</h1>
     <div class="btn-toolbar mb-2 mb-md-0">
-        <form action="{{ url_for('admin.sincronizar_calendario') }}" method="post" class="me-2">
-            <button type="submit" class="btn btn-sm btn-outline-secondary">
-                <i class="fas fa-sync"></i> Sincronizar con Google
-            </button>
-        </form>
+        {% if google_calendar_connected %}
+            <form action="{{ url_for('admin.sincronizar_calendario') }}" method="post" class="me-2">
+                <button type="submit" class="btn btn-sm btn-outline-secondary" id="syncButton">
+                    <i class="fas fa-sync" id="syncIcon"></i> Sincronizar con Google
+                </button>
+            </form>
+        {% else %}
+            <a href="{{ url_for('admin.configuracion') }}" class="btn btn-sm btn-outline-warning">
+                <i class="fas fa-cog me-1"></i> Configurar Google Calendar
+            </a>
+        {% endif %}
         <div class="btn-group me-2">
             <a href="{{ url_for('admin.nueva_cita') }}" class="btn btn-sm btn-outline-primary">
                 <i class="fas fa-calendar-plus"></i> Nueva Cita
@@ -57,6 +63,15 @@
         </div>
     </div>
 </div>
+
+{% if not google_calendar_connected %}
+<div class="alert alert-warning alert-dismissible fade show" role="alert">
+    <i class="fas fa-exclamation-triangle me-2"></i>Google Calendar no está configurado. 
+    <a href="{{ url_for('admin.configuracion') }}" class="alert-link">Configurar ahora</a>
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+{% endif %}
+
 
 <div class="card shadow-sm mb-4">
     <div class="card-body">
@@ -130,7 +145,22 @@
 <script src='https://cdn.jsdelivr.net/npm/fullcalendar@5.10.1/main.min.js'></script>
 <script src='https://cdn.jsdelivr.net/npm/fullcalendar@5.10.1/locales-all.min.js'></script>
 <script>
+    // Pasar información de Google Calendar al JavaScript
+    const googleCalendarConnected = {{ 'true' if google_calendar_connected else 'false' }};
+</script>
+<script>
     document.addEventListener('DOMContentLoaded', function() {
+        const syncForm = document.querySelector('form[action="{{ url_for("admin.sincronizar_calendario") }}"]');
+        const syncButton = document.getElementById('syncButton');
+        const syncIcon = document.getElementById('syncIcon');
+        
+        if (syncForm && syncButton) {
+            syncForm.addEventListener('submit', function(e) {
+                // Mostrar animación de carga
+                syncButton.disabled = true;
+                syncButton.innerHTML = '<i class="fas fa-sync fa-spin me-1"></i> Sincronizando...';
+            });
+        }
         const calendarEl = document.getElementById('calendar');
         const eventModal = new bootstrap.Modal(document.getElementById('eventModal'));
         const editEventModal = new bootstrap.Modal(document.getElementById('editEventModal'));
