@@ -3,9 +3,14 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, session
 from db_manager import DatabaseManager
 import os
+import re  # Import necesario para las funciones de calendario
 from functools import wraps
 from datetime import datetime, timedelta
 import json
+import logging
+
+# Configurar logging
+logger = logging.getLogger(__name__)
 
 # Inicializar blueprint para el panel de administración
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
@@ -403,8 +408,17 @@ def add_evento_proyecto(proyecto_id):
 @admin_bp.route('/calendario')
 @role_required(['admin', 'gestor', 'recepcion', 'abogado'])
 def calendario():
-    # Todos los roles pueden ver el calendario
-    return render_template('admin/calendario.html')
+    """Vista del calendario con estado de conexión a Google Calendar."""
+    try:
+        # Verificar si Google Calendar está conectado
+        google_calendar_connected = os.path.exists('credentials.json') and os.path.exists('token.pickle')
+        
+        return render_template('admin/calendario.html', 
+                             google_calendar_connected=google_calendar_connected)
+    except Exception as e:
+        flash(f'Error al cargar calendario: {str(e)}', 'danger')
+        return redirect(url_for('admin.dashboard'))
+# Actualizar el método api_eventos en admin_routes.py
 
 @admin_bp.route('/api/eventos', methods=['GET'])
 @login_required
@@ -435,8 +449,30 @@ def api_eventos():
             event['extendedProps']['tema'] = evento.get('description', '')
         else:
             event['extendedProps']['completed'] = evento.get('completed', False)
+            # Asegurarse de incluir la información del proyecto
             if 'project' in evento:
                 event['extendedProps']['project'] = evento['project']
+            else:
+                # Si no viene en el evento, intentar obtenerlo
+                try:
+                    evento_id = evento['id'].replace('evento_', '')
+                    conn = sqlite3.connect(db.db_file)
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                    SELECT proyecto_id, p.titulo 
+                    FROM eventos_proyecto e
+                    JOIN proyectos p ON e.proyecto_id = p.id
+                    WHERE e.id = ?
+                    """, (evento_id,))
+                    result = cursor.fetchone()
+                    conn.close()
+                    if result:
+                        event['extendedProps']['project'] = {
+                            'id': result[0],
+                            'title': result[1]
+                        }
+                except Exception as e:
+                    logger.error(f"Error al obtener proyecto para evento {evento['id']}: {e}")
         
         # Diferentes colores según el tipo
         if evento['type'] == 'appointment':
@@ -883,256 +919,6 @@ def crear_expediente_desde_consulta(cita_id):
         return redirect(url_for('admin.consultas'))
     
 
-
-
-
-
-# Métodos adicionales necesarios para el gestor de base de datos (db_manager.py)
-
-def get_cliente_by_id(self, cliente_id):
-    """
-    Obtiene un cliente por su ID.
-    
-    Args:
-        cliente_id: ID del cliente
-        
-    Returns:
-        Diccionario con los datos del cliente o None si no se encuentra
-    """
-    conn = sqlite3.connect(self.db_file)
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT * FROM clientes WHERE id=?", (cliente_id,))
-    cliente = cursor.fetchone()
-    
-    conn.close()
-    
-    if cliente:
-        return {
-            'id': cliente[0],
-            'nombre': cliente[1],
-            'email': cliente[2],
-            'telefono': cliente[3],
-            'fecha_registro': cliente[4],
-            'notas': cliente[5]
-        }
-    return None
-
-def delete_proyecto(self, proyecto_id):
-    """
-    Elimina un proyecto y sus datos relacionados.
-    
-    Args:
-        proyecto_id: ID del proyecto a eliminar
-    """
-    conn = sqlite3.connect(self.db_file)
-    cursor = conn.cursor()
-    
-    # Eliminar notas relacionadas
-    cursor.execute("DELETE FROM notas_proyecto WHERE proyecto_id=?", (proyecto_id,))
-    
-    # Eliminar eventos relacionados
-    cursor.execute("DELETE FROM eventos_proyecto WHERE proyecto_id=?", (proyecto_id,))
-    
-    # Eliminar el proyecto
-    cursor.execute("DELETE FROM proyectos WHERE id=?", (proyecto_id,))
-    
-    conn.commit()
-    conn.close()
-
-def delete_nota_proyecto(self, nota_id):
-    """
-    Elimina una nota de proyecto.
-    
-    Args:
-        nota_id: ID de la nota a eliminar
-    """
-    conn = sqlite3.connect(self.db_file)
-    cursor = conn.cursor()
-    
-    # Obtener proyecto_id para actualizarlo después
-    cursor.execute("SELECT proyecto_id FROM notas_proyecto WHERE id=?", (nota_id,))
-    result = cursor.fetchone()
-    if result:
-        proyecto_id = result[0]
-        
-        # Eliminar la nota
-        cursor.execute("DELETE FROM notas_proyecto WHERE id=?", (nota_id,))
-        
-        # Actualizar última fecha de actualización del proyecto
-        cursor.execute(
-            "UPDATE proyectos SET ultima_actualizacion=? WHERE id=?",
-            (datetime.now().strftime("%Y-%m-%d"), proyecto_id)
-        )
-    
-    conn.commit()
-    conn.close()
-
-def delete_evento_proyecto(self, evento_id):
-    """
-    Elimina un evento crítico de proyecto.
-    
-    Args:
-        evento_id: ID del evento a eliminar
-    """
-    conn = sqlite3.connect(self.db_file)
-    cursor = conn.cursor()
-    
-    # Obtener proyecto_id para actualizarlo después
-    cursor.execute("SELECT proyecto_id FROM eventos_proyecto WHERE id=?", (evento_id,))
-    result = cursor.fetchone()
-    if result:
-        proyecto_id = result[0]
-        
-        # Eliminar el evento
-        cursor.execute("DELETE FROM eventos_proyecto WHERE id=?", (evento_id,))
-        
-        # Actualizar última fecha de actualización del proyecto
-        cursor.execute(
-            "UPDATE proyectos SET ultima_actualizacion=? WHERE id=?",
-            (datetime.now().strftime("%Y-%m-%d"), proyecto_id)
-        )
-    
-    conn.commit()
-    conn.close()
-
-def get_all_citas(self):
-    """
-    Obtiene todas las citas con información de los clientes.
-    
-    Returns:
-        Lista de diccionarios con información de las citas
-    """
-    conn = sqlite3.connect(self.db_file)
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-    SELECT c.id, c.tipo, c.fecha, c.hora, c.tema, c.estado, c.fecha_creacion,
-           cl.id as cliente_id, cl.nombre as cliente_nombre, cl.email as cliente_email, cl.telefono as cliente_telefono
-    FROM citas c
-    JOIN clientes cl ON c.cliente_id = cl.id
-    ORDER BY c.fecha DESC, c.hora
-    """)
-    
-    citas_raw = cursor.fetchall()
-    
-    conn.close()
-    
-    citas = []
-    for c in citas_raw:
-        citas.append({
-            'id': c[0],
-            'tipo': c[1],
-            'fecha': c[2],
-            'hora': c[3],
-            'tema': c[4],
-            'estado': c[5],
-            'fecha_creacion': c[6],
-            'cliente': {
-                'id': c[7],
-                'nombre': c[8],
-                'email': c[9],
-                'telefono': c[10]
-            }
-        })
-    
-    return citas
-
-def get_cita(self, cita_id):
-    """
-    Obtiene una cita por su ID.
-    
-    Args:
-        cita_id: ID de la cita
-        
-    Returns:
-        Diccionario con los datos de la cita o None si no se encuentra
-    """
-    conn = sqlite3.connect(self.db_file)
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-    SELECT c.id, c.tipo, c.fecha, c.hora, c.tema, c.estado, c.fecha_creacion,
-           cl.id as cliente_id, cl.nombre as cliente_nombre, cl.email as cliente_email, cl.telefono as cliente_telefono
-    FROM citas c
-    JOIN clientes cl ON c.cliente_id = cl.id
-    WHERE c.id = ?
-    """, (cita_id,))
-    
-    cita = cursor.fetchone()
-    
-    conn.close()
-    
-    if cita:
-        return {
-            'id': cita[0],
-            'tipo': cita[1],
-            'fecha': cita[2],
-            'hora': cita[3],
-            'tema': cita[4],
-            'estado': cita[5],
-            'fecha_creacion': cita[6],
-            'cliente': {
-                'id': cita[7],
-                'nombre': cita[8],
-                'email': cita[9],
-                'telefono': cita[10]
-            }
-        }
-    return None
-
-def update_cita(self, cita_id, **kwargs):
-    """
-    Actualiza una cita existente.
-    
-    Args:
-        cita_id: ID de la cita
-        **kwargs: Campos a actualizar (tipo, fecha, hora, tema, estado)
-    """
-    conn = sqlite3.connect(self.db_file)
-    cursor = conn.cursor()
-    
-    # Actualizar solo los campos proporcionados
-    set_clause = []
-    values = []
-    
-    for key, value in kwargs.items():
-        if value is not None:  # Solo actualizar si el valor no es None
-            set_clause.append(f"{key}=?")
-            values.append(value)
-    
-    if set_clause:
-        # Añadir ID de la cita
-        values.append(cita_id)
-        
-        query = f"UPDATE citas SET {', '.join(set_clause)} WHERE id=?"
-        cursor.execute(query, values)
-        
-        conn.commit()
-    
-    conn.close()
-
-def delete_cita(self, cita_id):
-    """
-    Elimina una cita.
-    
-    Args:
-        cita_id: ID de la cita a eliminar
-    """
-    conn = sqlite3.connect(self.db_file)
-    cursor = conn.cursor()
-    
-    # Eliminar la cita
-    cursor.execute("DELETE FROM citas WHERE id=?", (cita_id,))
-    
-    conn.commit()
-    conn.close()
-
-# Implementación de las rutas faltantes en admin_routes.py
-
-
-
-
 # Rutas para gestión de usuarios a añadir en admin_routes.py
 
 @admin_bp.route('/usuarios')
@@ -1473,69 +1259,6 @@ def api_cita(cita_id):
             'error': str(e)
         }), 500
 
-@admin_bp.route('/api/notas/<int:nota_id>', methods=['DELETE'])
-@role_required(['admin', 'gestor', 'abogado'])
-def api_delete_nota(nota_id):
-    """API para eliminar una nota"""
-    try:
-        # Admin, gestor y abogado pueden eliminar notas
-        # Eliminar la nota
-        db.delete_nota_proyecto(nota_id)
-        
-        return jsonify({
-            'success': True,
-            'message': 'Nota eliminada correctamente'
-        })
-    
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-@admin_bp.route('/api/eventos/<int:evento_id>', methods=['PUT', 'DELETE'])
-@role_required(['admin', 'gestor', 'abogado'])
-def api_evento_crud(evento_id):
-    """API para actualizar o eliminar un evento crítico"""
-    try:
-        if request.method == 'PUT':
-            # Admin, gestor y abogado pueden actualizar eventos
-            data = request.json
-            
-            # Actualizar evento
-            kwargs = {}
-            if 'titulo' in data:
-                kwargs['titulo'] = data['titulo']
-            if 'fecha' in data:
-                kwargs['fecha'] = data['fecha']
-            if 'descripcion' in data:
-                kwargs['descripcion'] = data['descripcion']
-            
-            # Manejar el estado completado separadamente
-            completado = data.get('completado')
-            
-            db.update_evento_proyecto(evento_id, completado, **kwargs)
-            
-            return jsonify({
-                'success': True,
-                'message': 'Evento actualizado correctamente'
-            })
-        
-        elif request.method == 'DELETE':
-            # Admin, gestor y abogado pueden eliminar eventos
-            # Eliminar el evento
-            db.delete_evento_proyecto(evento_id)
-            
-            return jsonify({
-                'success': True,
-                'message': 'Evento eliminado correctamente'
-            })
-    
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
 
 #perfil de usuario 
 
@@ -1599,36 +1322,200 @@ def cambiar_password():
     except Exception as e:
         flash(f'Error al cambiar contraseña: {str(e)}', 'danger')
         return redirect(url_for('admin.admin_perfil'))
-
-
-
-
-# Para el control de acceso según rol, modificamos el decorador
-
-def role_required(roles):
-    """
-    Decorador para requerir uno o varios roles específicos
-    Args:
-        roles: String o lista de strings con los roles permitidos
-    """
-    def decorator(f):
-        @wraps(f)
-        def decorated_function(*args, **kwargs):
-            if not session.get('admin_logged_in'):
-                return redirect(url_for('admin.login', next=request.url))
+    
+#editar eventos
+@admin_bp.route('/eventos/editar/<int:evento_id>', methods=['GET', 'POST'])
+@role_required(['admin', 'gestor', 'abogado'])
+def editar_evento(evento_id):
+    """Edición de un evento crítico."""
+    try:
+        # Obtener evento de la base de datos
+        conn = sqlite3.connect(db.db_file)
+        cursor = conn.cursor()
+        
+        # Obtener información del evento con datos del proyecto y cliente
+        cursor.execute("""
+        SELECT e.id, e.titulo, e.descripcion, e.fecha, e.completado,
+               p.id as proyecto_id, p.titulo as proyecto_titulo,
+               cl.id as cliente_id, cl.nombre as cliente_nombre
+        FROM eventos_proyecto e
+        JOIN proyectos p ON e.proyecto_id = p.id
+        JOIN clientes cl ON p.cliente_id = cl.id
+        WHERE e.id = ?
+        """, (evento_id,))
+        
+        evento_data = cursor.fetchone()
+        conn.close()
+        
+        if not evento_data:
+            flash('Evento no encontrado', 'danger')
+            return redirect(url_for('admin.calendario'))
+        
+        # Estructurar datos del evento
+        evento = {
+            'id': evento_data[0],
+            'titulo': evento_data[1],
+            'descripcion': evento_data[2],
+            'fecha': evento_data[3],
+            'completado': bool(evento_data[4]),
+            'proyecto': {
+                'id': evento_data[5],
+                'titulo': evento_data[6]
+            },
+            'cliente': {
+                'id': evento_data[7],
+                'nombre': evento_data[8]
+            }
+        }
+        
+        if request.method == 'POST':
+            # Obtener datos del formulario
+            titulo = request.form.get('titulo')
+            fecha = request.form.get('fecha')
+            descripcion = request.form.get('descripcion', '')
+            completado = request.form.get('completado') == 'on'
             
-            if isinstance(roles, str):
-                allowed_roles = [roles]
-            else:
-                allowed_roles = roles
-                
-            if 'admin' in allowed_roles:
-                allowed_roles.append('admin')  # Admin siempre tiene acceso
-                
-            if session.get('admin_role') not in allowed_roles:
-                flash('No tienes permisos para acceder a esta sección', 'danger')
-                return redirect(url_for('admin.dashboard'))
-                
-            return f(*args, **kwargs)
-        return decorated_function
-    return decorator
+            if not titulo or not fecha:
+                flash('El título y la fecha son obligatorios', 'danger')
+                return render_template('admin/evento_editar.html', evento=evento)
+            
+            # Actualizar evento en la base de datos
+            db.update_evento_proyecto(
+                evento_id=evento_id,
+                completado=completado,
+                titulo=titulo,
+                fecha=fecha,
+                descripcion=descripcion
+            )
+            
+            flash('Evento actualizado correctamente', 'success')
+            
+            # Redireccionar según origen
+            next_url = request.args.get('next', url_for('admin.ver_proyecto', proyecto_id=evento['proyecto']['id']))
+            return redirect(next_url)
+        
+        return render_template('admin/evento_editar.html', evento=evento)
+    except Exception as e:
+        flash(f'Error al editar evento: {str(e)}', 'danger')
+        return redirect(url_for('admin.calendario'))
+    
+
+# sincronizacion google  calendar
+
+@admin_bp.route('/configuracion')
+@role_required('admin')
+def configuracion():
+    """Vista para configurar integración con Google Calendar."""
+    try:
+        # Verificar si existe credentials.json y token.pickle
+        google_calendar_connected = os.path.exists('credentials.json') and os.path.exists('token.pickle')
+        
+        # Obtener configuración de sincronización automática
+        # Aquí deberías obtener los valores de una base de datos o archivo de configuración
+        sync_auto_enabled = False  # Valor por defecto
+        sync_interval = 15  # Valor por defecto en minutos
+        
+        return render_template('admin/configuracion.html', 
+                             google_calendar_connected=google_calendar_connected,
+                             sync_auto_enabled=sync_auto_enabled,
+                             sync_interval=sync_interval)
+    except Exception as e:
+        flash(f'Error al cargar configuración: {str(e)}', 'danger')
+        return redirect(url_for('admin.dashboard'))
+
+@admin_bp.route('/configuracion/upload_credentials', methods=['POST'])
+@role_required('admin')
+def upload_google_credentials():
+    """Subir credenciales de Google para configurar Calendar."""
+    try:
+        if 'credentials_file' not in request.files:
+            flash('No se seleccionó ningún archivo', 'danger')
+            return redirect(url_for('admin.configuracion'))
+        
+        file = request.files['credentials_file']
+        
+        if file.filename == '':
+            flash('No se seleccionó ningún archivo', 'danger')
+            return redirect(url_for('admin.configuracion'))
+        
+        if file and file.filename.endswith('.json'):
+            # Guardar el archivo de credenciales
+            file.save('credentials.json')
+            
+            # Eliminar token.pickle existente para forzar nueva autenticación
+            if os.path.exists('token.pickle'):
+                os.remove('token.pickle')
+            
+            flash('Credenciales de Google subidas correctamente. Ahora intenta sincronizar para autenticar.', 'success')
+            return redirect(url_for('admin.configuracion'))
+        else:
+            flash('Por favor, sube un archivo JSON válido', 'danger')
+            return redirect(url_for('admin.configuracion'))
+        
+    except Exception as e:
+        flash(f'Error al subir credenciales: {str(e)}', 'danger')
+        return redirect(url_for('admin.configuracion'))
+
+@admin_bp.route('/configuracion/desconectar_google', methods=['POST'])
+@role_required('admin')
+def desconectar_google_calendar():
+    """Desconectar la integración con Google Calendar."""
+    try:
+        # Eliminar token.pickle
+        if os.path.exists('token.pickle'):
+            os.remove('token.pickle')
+            flash('Google Calendar desconectado correctamente', 'success')
+        else:
+            flash('No hay conexión activa con Google Calendar', 'warning')
+        
+        return redirect(url_for('admin.configuracion'))
+    except Exception as e:
+        flash(f'Error al desconectar Google Calendar: {str(e)}', 'danger')
+        return redirect(url_for('admin.configuracion'))
+
+@admin_bp.route('/configuracion/sync_auto', methods=['POST'])
+@role_required('admin')
+def configurar_sync_auto():
+    """Configurar sincronización automática."""
+    try:
+        sync_auto = request.form.get('sync_auto') == 'on'
+        sync_interval = int(request.form.get('sync_interval', 15))
+        
+        # Aquí deberías guardar esta configuración en la base de datos o archivo de configuración
+        # Por simplicidad, solo mostraremos un mensaje
+        
+        if sync_auto:
+            flash(f'Sincronización automática activada cada {sync_interval} minutos', 'success')
+        else:
+            flash('Sincronización automática desactivada', 'success')
+        
+        return redirect(url_for('admin.configuracion'))
+    except Exception as e:
+        flash(f'Error al configurar sincronización automática: {str(e)}', 'danger')
+        return redirect(url_for('admin.configuracion'))
+
+@admin_bp.route('/calendario/sincronizar', methods=['POST'])
+@role_required(['admin', 'gestor'])
+def sincronizar_calendario():
+    """Sincroniza manualmente el calendario con Google."""
+    try:
+        from handlers.calendar_service import sincronizar_calendario_bd
+        
+        # Verificar si tenemos credenciales
+        if not os.path.exists('credentials.json'):
+            flash('No se han configurado las credenciales de Google Calendar. Por favor, configúralas primero.', 'warning')
+            return redirect(url_for('admin.configuracion'))
+        
+        # Si no existe token.pickle, esto iniciará el flujo de autenticación de Google
+        exito, mensaje = sincronizar_calendario_bd()
+        
+        if exito:
+            flash(mensaje, 'success')
+        else:
+            flash(mensaje, 'danger')
+        
+        return redirect(url_for('admin.calendario'))
+    except Exception as e:
+        flash(f'Error al sincronizar calendario: {str(e)}', 'danger')
+        return redirect(url_for('admin.calendario'))
+    

@@ -16,6 +16,28 @@
     .modal-body .label {
         font-weight: bold;
     }
+    
+    /* Estilos para hacer los eventos editables */
+    .fc-event.fc-draggable {
+        cursor: grab !important;
+    }
+    
+    .fc-event.fc-dragging {
+        opacity: 0.7;
+    }
+    
+    /* Estilos para diferentes tipos de eventos */
+    .fc-event-tipo-presencial {
+        border-left: 5px solid #28a745 !important;
+    }
+    
+    .fc-event-tipo-videoconferencia {
+        border-left: 5px solid #007bff !important;
+    }
+    
+    .fc-event-tipo-telefonica {
+        border-left: 5px solid #ffc107 !important;
+    }
 </style>
 {% endblock %}
 
@@ -23,6 +45,11 @@
 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
     <h1 class="h2">Calendario</h1>
     <div class="btn-toolbar mb-2 mb-md-0">
+        <form action="{{ url_for('admin.sincronizar_calendario') }}" method="post" class="me-2">
+            <button type="submit" class="btn btn-sm btn-outline-secondary">
+                <i class="fas fa-sync"></i> Sincronizar con Google
+            </button>
+        </form>
         <div class="btn-group me-2">
             <a href="{{ url_for('admin.nueva_cita') }}" class="btn btn-sm btn-outline-primary">
                 <i class="fas fa-calendar-plus"></i> Nueva Cita
@@ -51,6 +78,48 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
                 <button type="button" class="btn btn-primary" id="btnEditEvent">Editar</button>
+                <button type="button" class="btn btn-warning" id="btnRescheduleEvent">Reprogramar</button>
+                <button type="button" class="btn btn-danger" id="btnCancelEvent">Cancelar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal para editar evento -->
+<div class="modal fade" id="editEventModal" tabindex="-1" aria-labelledby="editEventModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="editEventModalLabel">Editar evento</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editEventForm">
+                    <div class="mb-3">
+                        <label for="editTema" class="form-label">Tema</label>
+                        <input type="text" class="form-control" id="editTema" name="tema">
+                    </div>
+                    <div class="mb-3">
+                        <label for="editTipo" class="form-label">Tipo de reunión</label>
+                        <select class="form-select" id="editTipo" name="tipo">
+                            <option value="presencial">Presencial</option>
+                            <option value="videoconferencia">Videoconferencia</option>
+                            <option value="telefonica">Telefónica</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editFecha" class="form-label">Fecha</label>
+                        <input type="date" class="form-control" id="editFecha" name="fecha">
+                    </div>
+                    <div class="mb-3">
+                        <label for="editHora" class="form-label">Hora</label>
+                        <input type="time" class="form-control" id="editHora" name="hora">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="btnSaveEdit">Guardar cambios</button>
             </div>
         </div>
     </div>
@@ -64,12 +133,13 @@
     document.addEventListener('DOMContentLoaded', function() {
         const calendarEl = document.getElementById('calendar');
         const eventModal = new bootstrap.Modal(document.getElementById('eventModal'));
+        const editEventModal = new bootstrap.Modal(document.getElementById('editEventModal'));
         const eventDetails = document.getElementById('eventDetails');
         const btnEditEvent = document.getElementById('btnEditEvent');
-        
-        // Nuevo: Añadir elementos para la edición directa de eventos
         const btnRescheduleEvent = document.getElementById('btnRescheduleEvent');
         const btnCancelEvent = document.getElementById('btnCancelEvent');
+        
+        let currentEvent = null;
         
         const calendar = new FullCalendar.Calendar(calendarEl, {
             locale: 'es',
@@ -83,7 +153,7 @@
             selectable: true,
             editable: true,
             eventClick: function(info) {
-                // Mostrar detalles del evento en el modal
+                currentEvent = info.event;
                 const event = info.event;
                 const extProps = event.extendedProps;
                 
@@ -103,16 +173,16 @@
                 
                 if (extProps.type === 'appointment') {
                     detailsHtml += `
-                        <p><span class="label">Tipo:</span> Cita</p>
+                        <p><span class="label">Tipo:</span> Cita (${extProps.tipo || 'Presencial'})</p>
                         <p><span class="label">Estado:</span> ${extProps.status || 'Pendiente'}</p>
                         <p><span class="label">Cliente:</span> ${extProps.client?.name || ''}</p>
                         <p><span class="label">Email:</span> ${extProps.client?.email || ''}</p>
                         <p><span class="label">Teléfono:</span> ${extProps.client?.phone || ''}</p>
                     `;
                     
-                    // Mostrar botones de reprogramar y cancelar solo para citas
-                    btnRescheduleEvent.style.display = 'block';
-                    btnCancelEvent.style.display = 'block';
+                    // Mostrar botones adicionales para citas
+                    btnRescheduleEvent.style.display = 'inline-block';
+                    btnCancelEvent.style.display = 'inline-block';
                 } else {
                     detailsHtml += `
                         <p><span class="label">Tipo:</span> Evento crítico</p>
@@ -135,7 +205,15 @@
                 // Configurar botón de edición
                 btnEditEvent.onclick = function() {
                     if (extProps.type === 'appointment') {
-                        window.location.href = `/admin/citas/editar/${event.id.replace('cita_', '')}`;
+                        // Cargar datos en el formulario de edición
+                        document.getElementById('editTema').value = extProps.tema || '';
+                        document.getElementById('editTipo').value = extProps.tipo || 'presencial';
+                        document.getElementById('editFecha').value = event.start.toISOString().split('T')[0];
+                        const hora = event.start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false});
+                        document.getElementById('editHora').value = hora;
+                        
+                        eventModal.hide();
+                        editEventModal.show();
                     } else {
                         window.location.href = `/admin/eventos/editar/${event.id.replace('evento_', '')}`;
                     }
@@ -143,10 +221,12 @@
                 
                 eventModal.show();
             },
+            
             dateClick: function(info) {
                 // Al hacer clic en una fecha, abrir formulario para crear nueva cita
                 window.location.href = `/admin/citas/nueva?fecha=${info.dateStr}`;
             },
+            
             eventDrop: function(info) {
                 // Se ejecuta cuando un evento es arrastrado a una nueva fecha/hora
                 if (info.event.extendedProps.type === 'appointment') {
@@ -189,10 +269,38 @@
                     alert('Los eventos críticos no se pueden reprogramar directamente. Usa el formulario de edición.');
                     info.revert();
                 }
+            },
+            
+            eventDidMount: function(info) {
+                // Personalizar la apariencia de cada evento
+                const event = info.event;
+                const el = info.el;
+                
+                if (event.extendedProps.type === 'appointment') {
+                    // Añadir clase CSS según el tipo de cita
+                    const tipo = event.extendedProps.tipo || 'presencial';
+                    el.classList.add(`fc-event-tipo-${tipo}`);
+                    
+                    // Personalizar el título para incluir el tipo
+                    const titleEl = el.querySelector('.fc-event-title');
+                    if (titleEl) {
+                        titleEl.innerHTML = `<i class="fas fa-${getIconForType(tipo)} me-1"></i>${event.title}`;
+                    }
+                }
             }
         });
         
         calendar.render();
+        
+        // Función para obtener el icono según el tipo de cita
+        function getIconForType(tipo) {
+            switch(tipo) {
+                case 'presencial': return 'user';
+                case 'videoconferencia': return 'video';
+                case 'telefonica': return 'phone';
+                default: return 'calendar';
+            }
+        }
         
         // Configurar el botón de reprogramar
         btnRescheduleEvent.addEventListener('click', function() {
@@ -222,22 +330,41 @@
                 });
             }
         });
+        
+        // Configurar el botón de guardar cambios
+        document.getElementById('btnSaveEdit').addEventListener('click', function() {
+            if (currentEvent && currentEvent.extendedProps.type === 'appointment') {
+                const eventId = currentEvent.id.replace('cita_', '');
+                const formData = {
+                    tema: document.getElementById('editTema').value,
+                    tipo: document.getElementById('editTipo').value,
+                    fecha: document.getElementById('editFecha').value,
+                    hora: document.getElementById('editHora').value
+                };
+                
+                fetch(`/admin/api/citas/${eventId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('Cambios guardados correctamente');
+                        editEventModal.hide();
+                        calendar.refetchEvents(); // Actualizar eventos
+                    } else {
+                        alert(`Error: ${data.error}`);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Error al guardar los cambios');
+                });
+            }
+        });
     });
 </script>
 {% endblock %}
-
-<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
-    <h1 class="h2">Calendario</h1>
-    <div class="btn-toolbar mb-2 mb-md-0">
-        <form action="{{ url_for('admin.sincronizar_calendario') }}" method="post" class="me-2">
-            <button type="submit" class="btn btn-sm btn-outline-secondary">
-                <i class="fas fa-sync"></i> Sincronizar con Google
-            </button>
-        </form>
-        <div class="btn-group me-2">
-            <a href="{{ url_for('admin.nueva_cita') }}" class="btn btn-sm btn-outline-primary">
-                <i class="fas fa-calendar-plus"></i> Nueva Cita
-            </a>
-        </div>
-    </div>
-</div>

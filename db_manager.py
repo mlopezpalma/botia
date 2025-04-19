@@ -793,6 +793,9 @@ class DatabaseManager:
         return export_data
     
     # Método para obtener todos los eventos del calendario
+
+    # Actualizar el método get_all_calendar_events en db_manager.py
+
     def get_all_calendar_events(self, start_date=None, end_date=None):
         """
         Obtiene todos los eventos para el calendario en un rango de fechas.
@@ -800,21 +803,21 @@ class DatabaseManager:
         """
         conn = sqlite3.connect(self.db_file)
         cursor = conn.cursor()
-        
+    
         events = []
-        
+    
         # Construir condiciones de fecha si se proporcionan
         date_condition = ""
         params = []
-        
+    
         if start_date:
             date_condition += " AND fecha >= ?"
             params.append(start_date)
-        
+    
         if end_date:
             date_condition += " AND fecha <= ?"
             params.append(end_date)
-        
+    
         # Obtener citas
         query = f"""
         SELECT c.id, c.fecha, c.hora, c.tipo, c.tema, c.estado, 
@@ -824,10 +827,10 @@ class DatabaseManager:
         WHERE 1=1 {date_condition}
         ORDER BY c.fecha, c.hora
         """
-        
+    
         cursor.execute(query, params)
         citas = cursor.fetchall()
-        
+    
         for cita in citas:
             events.append({
                 'id': f"cita_{cita[0]}",
@@ -842,7 +845,7 @@ class DatabaseManager:
                     'phone': cita[8]
                 }
             })
-        
+    
         # Obtener eventos críticos de proyectos
         query = f"""
         SELECT e.id, e.fecha, e.titulo, e.descripcion, e.completado,
@@ -854,10 +857,10 @@ class DatabaseManager:
         WHERE 1=1 {date_condition}
         ORDER BY e.fecha
         """
-        
+    
         cursor.execute(query, params)
         eventos = cursor.fetchall()
-        
+    
         for evento in eventos:
             events.append({
                 'id': f"evento_{evento[0]}",
@@ -875,9 +878,10 @@ class DatabaseManager:
                     'email': evento[8]
                 }
             })
-        
+    
         conn.close()
         return events
+    
     # Métodos adicionales a agregar en la clase DatabaseManager en db_manager.py
 
     def get_cliente_by_id(self, cliente_id):

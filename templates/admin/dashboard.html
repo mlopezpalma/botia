@@ -338,6 +338,8 @@
     </div>
 </div>
 
+<!-- Fragmento actualizado para admin/dashboard.html -->
+
 <div class="row">
     <div class="col-md-12">
         <div class="card mb-4 shadow-sm">
@@ -354,3 +356,46 @@
                                 <th>Título</th>
                                 <th>Tipo</th>
                                 <th>Cliente</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for evento in proximos_eventos %}
+                            <tr>
+                                <td>{{ evento.start.split('T')[0] }}</td>
+                                <td>{{ evento.title }}</td>
+                                <td>
+                                    {% if evento.type == 'appointment' %}
+                                    <span class="badge bg-primary">Cita</span>
+                                    {% else %}
+                                    <span class="badge bg-danger">Evento crítico</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ evento.client.name }}</td>
+                                <td>
+                                    {% if evento.type == 'appointment' %}
+                                    <a href="{{ url_for('admin.ver_cita', cita_id=evento.id|replace('cita_', '')) }}" class="btn btn-sm btn-outline-primary">
+                                        <i class="fas fa-eye"></i> Ver
+                                    </a>
+                                    {% else %}
+                                    <a href="{{ url_for('admin.editar_evento', evento_id=evento.id|replace('evento_', '')) }}" class="btn btn-sm btn-outline-primary">
+                                        <i class="fas fa-edit"></i> Editar
+                                    </a>
+                                    <a href="{{ url_for('admin.ver_proyecto', proyecto_id=evento.project.id) }}" class="btn btn-sm btn-outline-secondary">
+                                        <i class="fas fa-folder"></i> Expediente
+                                    </a>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="5" class="text-center">No hay eventos próximos</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

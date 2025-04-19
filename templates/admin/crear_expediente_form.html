@@ -1,0 +1,86 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Crear Expediente | Panel de Administración{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Crear Expediente desde Consulta</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <a href="{{ url_for('admin.consultas') }}" class="btn btn-sm btn-outline-secondary">
+            <i class="fas fa-arrow-left"></i> Volver a consultas
+        </a>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <form method="post">
+                    <div class="mb-4">
+                        <h5>Información de la Consulta</h5>
+                        <div class="card bg-light p-3">
+                            <p><strong>Cliente:</strong> {{ cita.cliente['nombre'] }}</p>
+                            <p><strong>Email:</strong> {{ cita.cliente['email'] }}</p>
+                            <p><strong>Fecha:</strong> {{ cita.fecha }} a las {{ cita.hora }}</p>
+                            <p><strong>Tipo:</strong> {{ cita.tipo | capitalize }}</p>
+                            <p><strong>Tema:</strong> {{ cita.tema }}</p>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="titulo" class="form-label">Título del expediente *</label>
+                        <input type="text" class="form-control" id="titulo" name="titulo" value="{{ cita.tema }}" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="descripcion" class="form-label">Descripción</label>
+                        <textarea class="form-control" id="descripcion" name="descripcion" rows="3">{{ 'Expediente creado a partir de consulta realizada el ' + cita.fecha }}</textarea>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="abogado" class="form-label">Abogado asignado</label>
+                        <input type="text" class="form-control" id="abogado" name="abogado">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="estado" class="form-label">Estado inicial</label>
+                        <select class="form-select" id="estado" name="estado">
+                            <option value="nuevo" selected>Nuevo</option>
+                            <option value="pendiente_documentacion">Pendiente de documentación</option>
+                            <option value="en_proceso">En proceso</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="notas_iniciales" class="form-label">Notas iniciales</label>
+                        <textarea class="form-control" id="notas_iniciales" name="notas_iniciales" rows="4" placeholder="Añade notas importantes de la consulta inicial..."></textarea>
+                    </div>
+                    
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="actualizar_estado_cita" name="actualizar_estado_cita" checked>
+                        <label class="form-check-label" for="actualizar_estado_cita">Marcar la consulta como procesada</label>
+                    </div>
+                    
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary">Crear Expediente</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card shadow-sm">
+            <div class="card-header bg-light">
+                <h5 class="card-title mb-0">Información</h5>
+            </div>
+            <div class="card-body">
+                <p>Este formulario convierte una consulta en un expediente formal.</p>
+                <p>Campos marcados con * son obligatorios.</p>
+                <p>El expediente contendrá toda la información de la consulta original y las notas que añadas.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
