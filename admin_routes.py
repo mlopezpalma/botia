@@ -488,26 +488,6 @@ def api_eventos():
     
     return jsonify(calendar_events)
 
-@admin_bp.route('/calendario/sincronizar', methods=['POST'])
-@role_required(['admin', 'gestor'])
-def sincronizar_calendario():
-    """Sincroniza manualmente el calendario con Google."""
-    try:
-        # Solo admin y gestor pueden sincronizar el calendario
-        from handlers.calendar_service import sincronizar_calendario_bd
-        
-        exito, mensaje = sincronizar_calendario_bd()
-        
-        if exito:
-            flash(mensaje, 'success')
-        else:
-            flash(mensaje, 'danger')
-        
-        return redirect(url_for('admin.calendario'))
-    except Exception as e:
-        flash(f'Error al sincronizar calendario: {str(e)}', 'danger')
-        return redirect(url_for('admin.calendario'))
-
 # Gestión de citas
 @admin_bp.route('/citas')
 @role_required(['admin', 'gestor', 'recepcion', 'abogado'])
@@ -1418,60 +1398,14 @@ def configuracion():
         return render_template('admin/configuracion.html', 
                              google_calendar_connected=google_calendar_connected,
                              sync_auto_enabled=sync_auto_enabled,
-                             sync_interval=sync_interval)
+                             sync_interval=sync_interval,
+                             os=os)
     except Exception as e:
         flash(f'Error al cargar configuración: {str(e)}', 'danger')
         return redirect(url_for('admin.dashboard'))
 
-@admin_bp.route('/configuracion/upload_credentials', methods=['POST'])
-@role_required('admin')
-def upload_google_credentials():
-    """Subir credenciales de Google para configurar Calendar."""
-    try:
-        if 'credentials_file' not in request.files:
-            flash('No se seleccionó ningún archivo', 'danger')
-            return redirect(url_for('admin.configuracion'))
-        
-        file = request.files['credentials_file']
-        
-        if file.filename == '':
-            flash('No se seleccionó ningún archivo', 'danger')
-            return redirect(url_for('admin.configuracion'))
-        
-        if file and file.filename.endswith('.json'):
-            # Guardar el archivo de credenciales
-            file.save('credentials.json')
-            
-            # Eliminar token.pickle existente para forzar nueva autenticación
-            if os.path.exists('token.pickle'):
-                os.remove('token.pickle')
-            
-            flash('Credenciales de Google subidas correctamente. Ahora intenta sincronizar para autenticar.', 'success')
-            return redirect(url_for('admin.configuracion'))
-        else:
-            flash('Por favor, sube un archivo JSON válido', 'danger')
-            return redirect(url_for('admin.configuracion'))
-        
-    except Exception as e:
-        flash(f'Error al subir credenciales: {str(e)}', 'danger')
-        return redirect(url_for('admin.configuracion'))
 
-@admin_bp.route('/configuracion/desconectar_google', methods=['POST'])
-@role_required('admin')
-def desconectar_google_calendar():
-    """Desconectar la integración con Google Calendar."""
-    try:
-        # Eliminar token.pickle
-        if os.path.exists('token.pickle'):
-            os.remove('token.pickle')
-            flash('Google Calendar desconectado correctamente', 'success')
-        else:
-            flash('No hay conexión activa con Google Calendar', 'warning')
-        
-        return redirect(url_for('admin.configuracion'))
-    except Exception as e:
-        flash(f'Error al desconectar Google Calendar: {str(e)}', 'danger')
-        return redirect(url_for('admin.configuracion'))
+
 
 @admin_bp.route('/configuracion/sync_auto', methods=['POST'])
 @role_required('admin')
@@ -1513,9 +1447,151 @@ def sincronizar_calendario():
             flash(mensaje, 'success')
         else:
             flash(mensaje, 'danger')
+            # Si el error es por autenticación, ofrecer volver a autenticar
+            if "invalid_grant" in mensaje or "autenticación" in mensaje.lower():
+                flash('Las credenciales han expirado. Necesitas volver a autenticar.', 'warning')
+                # Eliminar token.pickle para forzar reautenticación
+                if os.path.exists('token.pickle'):
+                    os.remove('token.pickle')
+                return redirect(url_for('admin.configuracion'))
         
         return redirect(url_for('admin.calendario'))
     except Exception as e:
         flash(f'Error al sincronizar calendario: {str(e)}', 'danger')
         return redirect(url_for('admin.calendario'))
-    
+
+# admin_routes.py - Nueva implementación para autenticación web
+
+@admin_bp.route('/google/login')
+@role_required('admin')
+def google_login():
+    """Inicia el proceso de autenticación con Google desde la web."""
+    try:
+        from google_auth_oauthlib.flow import Flow
+        
+        # Verificar que existen las credenciales
+        if not os.path.exists('credentials.json'):
+            flash('No se han configurado las credenciales de Google. Por favor, sube el archivo credentials.json primero.', 'danger')
+            return redirect(url_for('admin.configuracion'))
+        
+        # Configurar el flujo de OAuth
+        flow = Flow.from_client_secrets_file(
+            'credentials.json',
+            scopes=['https://www.googleapis.com/auth/calendar'],
+            redirect_uri=url_for('admin.google_callback', _external=True)
+        )
+        
+        # Guardar el estado en la sesión para verificación posterior
+        session['google_auth_state'] = flow.state
+        
+        # Obtener la URL de autorización de Google
+        authorization_url, state = flow.authorization_url(
+            access_type='offline',
+            include_granted_scopes='true'
+        )
+        
+        return redirect(authorization_url)
+    except Exception as e:
+        flash(f'Error al iniciar autenticación: {str(e)}', 'danger')
+        return redirect(url_for('admin.configuracion'))
+
+@admin_bp.route('/google/callback')
+@role_required('admin')
+def google_callback():
+    """Callback de Google después de la autenticación."""
+    try:
+        from google_auth_oauthlib.flow import Flow
+        
+        # Verificar el estado para prevenir ataques CSRF
+        if 'google_auth_state' not in session:
+            flash('Estado no válido. Por favor, inicia el proceso de nuevo.', 'danger')
+            return redirect(url_for('admin.configuracion'))
+        
+        # Configurar el flujo con el mismo estado
+        flow = Flow.from_client_secrets_file(
+            'credentials.json',
+            scopes=['https://www.googleapis.com/auth/calendar'],
+            state=session['google_auth_state'],
+            redirect_uri=url_for('admin.google_callback', _external=True)
+        )
+        
+        # Obtener las credenciales
+        flow.fetch_token(authorization_response=request.url)
+        credentials = flow.credentials
+        
+        # Guardar las credenciales
+        with open('token.pickle', 'wb') as token:
+            pickle.dump(credentials, token)
+        
+        flash('¡Autenticación con Google Calendar completada exitosamente!', 'success')
+        return redirect(url_for('admin.configuracion'))
+    except Exception as e:
+        flash(f'Error durante la autenticación: {str(e)}', 'danger')
+        return redirect(url_for('admin.configuracion'))
+
+@admin_bp.route('/configuracion/upload_credentials', methods=['POST'])
+@role_required('admin')
+def upload_google_credentials():
+    """Sube las credenciales de Google desde la interfaz web."""
+    try:
+        if 'credentials_file' not in request.files:
+            flash('No se seleccionó ningún archivo', 'danger')
+            return redirect(url_for('admin.configuracion'))
+        
+        file = request.files['credentials_file']
+        
+        if file.filename == '':
+            flash('No se seleccionó ningún archivo', 'danger')
+            return redirect(url_for('admin.configuracion'))
+        
+        if file and file.filename.endswith('.json'):
+            # Verificar que el archivo es un JSON válido
+            try:
+                import json
+                content = file.read()
+                json_content = json.loads(content)
+                
+                # Verificar que tiene las claves necesarias
+                if 'installed' not in json_content and 'web' not in json_content:
+                    flash('El archivo JSON no parece ser un archivo de credenciales válido de Google', 'danger')
+                    return redirect(url_for('admin.configuracion'))
+                
+                # Guardar el archivo
+                file.seek(0)  # Resetear el puntero después de leer
+                file.save('credentials.json')
+                
+                # Eliminar token.pickle existente para forzar nueva autenticación
+                if os.path.exists('token.pickle'):
+                    os.remove('token.pickle')
+                
+                flash('Credenciales de Google subidas correctamente. Ahora haz clic en "Conectar con Google Calendar" para completar la configuración.', 'success')
+                return redirect(url_for('admin.configuracion'))
+            except json.JSONDecodeError:
+                flash('El archivo no es un JSON válido', 'danger')
+                return redirect(url_for('admin.configuracion'))
+            except Exception as e:
+                flash(f'Error al procesar el archivo: {str(e)}', 'danger')
+                return redirect(url_for('admin.configuracion'))
+        else:
+            flash('Por favor, sube un archivo JSON válido', 'danger')
+            return redirect(url_for('admin.configuracion'))
+    except Exception as e:
+        flash(f'Error al subir credenciales: {str(e)}', 'danger')
+        return redirect(url_for('admin.configuracion'))
+
+@admin_bp.route('/configuracion/desconectar_google', methods=['POST'])
+@role_required('admin')
+def desconectar_google_calendar():
+    """Desconecta la integración con Google Calendar."""
+    try:
+        # Eliminar token.pickle
+        if os.path.exists('token.pickle'):
+            os.remove('token.pickle')
+            flash('Google Calendar desconectado correctamente', 'success')
+        else:
+            flash('No hay conexión activa con Google Calendar', 'warning')
+        
+        return redirect(url_for('admin.configuracion'))
+    except Exception as e:
+        flash(f'Error al desconectar Google Calendar: {str(e)}', 'danger')
+        return redirect(url_for('admin.configuracion'))    

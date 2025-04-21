@@ -20,6 +20,12 @@ def get_google_calendar_service():
     Returns:
         Servicio de Google Calendar
     """
+    import os
+    import pickle
+    from google.oauth2.credentials import Credentials
+    from google.auth.transport.requests import Request
+    from googleapiclient.discovery import build
+    
     creds = None
     # El archivo token.pickle almacena los tokens de acceso y actualización del usuario
     if os.path.exists('token.pickle'):
@@ -29,23 +35,34 @@ def get_google_calendar_service():
     # Si no hay credenciales disponibles o no son válidas, el usuario debe iniciar sesión
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
+            try:
+                creds.refresh(Request())
+                # Guardar las credenciales actualizadas
+                with open('token.pickle', 'wb') as token:
+                    pickle.dump(creds, token)
+            except Exception as e:
+                logger.error(f"Error al refrescar credenciales: {str(e)}")
+                # En esta implementación web, no eliminamos el token automáticamente
+                # En su lugar, notificamos al administrador para que se reautentique desde la web
+                logger.error("Las credenciales de Google Calendar han expirado y no se pueden refrescar. Por favor, reconecte desde la configuración.")
+                raise Exception("Las credenciales de Google Calendar han expirado. Por favor, reconecte desde la sección de configuración.")
         else:
-            # credentials.json debe descargarse de la consola de Google Cloud
-            flow = InstalledAppFlow.from_client_secrets_file(
-                'credentials.json', SCOPES)
-            creds = flow.run_local_server(port=0)
-        
-        # Guardar las credenciales para la próxima ejecución
-        with open('token.pickle', 'wb') as token:
-            pickle.dump(creds, token)
+            # No hay credenciales válidas
+            logger.error("No se encontraron credenciales válidas de Google Calendar.")
+            raise Exception("No hay credenciales válidas de Google Calendar. Por favor, configure la integración desde el panel de administración.")
     
     # Construir el servicio de calendario
-    service = build('calendar', 'v3', credentials=creds)
-    return service
+    try:
+        service = build('calendar', 'v3', credentials=creds)
+        return service
+    except Exception as e:
+        logger.error(f"Error al construir el servicio de Google Calendar: {str(e)}")
+        raise Exception(f"Error al conectar con Google Calendar: {str(e)}")
+    
 
 # Modificación para handlers/calendar_service.py
 # Mejora en la función obtener_horarios_disponibles para evitar horas pasadas y solapadas
+# Corrección para handlers/calendar_service.py
 
 def obtener_horarios_disponibles(fecha, tipo_reunion):
     """
@@ -102,16 +119,35 @@ def obtener_horarios_disponibles(fecha, tipo_reunion):
                 # Extraer hora de inicio del evento
                 start_time = evento['start'].split('T')[1][:5]  # Formato HH:MM
                 
-                # Determinar duración del evento
+                # Determinar duración del evento basada en el tipo de cita
                 duracion_evento = 30  # Valor por defecto
                 
-                if 'type' in evento and evento['type'] == 'appointment':
-                    # Usar duración específica basada en el tipo de cita
-                    tipo_evento = evento.get('appointment_type', tipo_reunion)
+                if evento['type'] == 'appointment':
+                    # Obtener el tipo de cita (presencial, videoconferencia, telefonica)
+                    tipo_evento = None
+                    
+                    # Intentar extraer el tipo del título o descripción
+                    if 'title' in evento:
+                        titulo = evento['title'].lower()
+                        if 'presencial' in titulo:
+                            tipo_evento = 'presencial'
+                        elif 'videoconferencia' in titulo:
+                            tipo_evento = 'videoconferencia'
+                        elif 'telefónica' in titulo or 'telefonica' in titulo:
+                            tipo_evento = 'telefonica'
+                    
+                    # Si no se encontró en el título, buscar en otros campos
+                    if not tipo_evento and 'tipo' in evento:
+                        tipo_evento = evento['tipo']
+                    
+                    # Usar la duración correspondiente al tipo
                     if tipo_evento in TIPOS_REUNION:
                         duracion_evento = TIPOS_REUNION[tipo_evento]["duracion_real"]
+                    else:
+                        # Si no se puede determinar el tipo, asumir 30 minutos
+                        duracion_evento = 30
                 
-                logger.debug(f"Evento de BD: {start_time}, duración: {duracion_evento} min, tipo: {evento.get('type', 'desconocido')}")
+                logger.debug(f"Evento de BD: {start_time}, duración: {duracion_evento} min, tipo: {tipo_evento if tipo_evento else 'desconocido'}")
                 
                 # Para cada horario disponible, verificar solapamiento con este evento
                 for hora_str in horarios_completos:
@@ -160,7 +196,6 @@ def obtener_horarios_disponibles(fecha, tipo_reunion):
             
             # Convertir a datetime
             if 'T' in inicio:  # Formato con hora
-                # Convertir a datetime sin zona horaria para evitar problemas de comparación
                 inicio_dt = datetime.datetime.fromisoformat(inicio.replace('Z', '+00:00'))
                 fin_dt = datetime.datetime.fromisoformat(fin.replace('Z', '+00:00'))
                 
@@ -168,7 +203,10 @@ def obtener_horarios_disponibles(fecha, tipo_reunion):
                 inicio_dt = inicio_dt.replace(tzinfo=None)
                 fin_dt = fin_dt.replace(tzinfo=None)
                 
-                logger.debug(f"Evento de Google: {inicio_dt.strftime('%H:%M')} - {fin_dt.strftime('%H:%M')}")
+                # Duración del evento en minutos
+                duracion_evento = int((fin_dt - inicio_dt).total_seconds() / 60)
+                
+                logger.debug(f"Evento de Google: {inicio_dt.strftime('%H:%M')} - {fin_dt.strftime('%H:%M')}, duración: {duracion_evento} min")
                 
                 # Verificar solape con cada horario disponible
                 for hora_str in horarios_completos:
@@ -227,8 +265,9 @@ def obtener_horarios_disponibles(fecha, tipo_reunion):
         return horarios_disponibles_filtrados
     else:
         logger.debug(f"Horarios disponibles para {fecha_dt.strftime('%Y-%m-%d')}: {horarios_disponibles}")
-        return horarios_disponibles
+        return horarios_disponibles  
     
+      
 def encontrar_proxima_fecha_disponible(tipo_reunion):
     """
     Encuentra la próxima fecha y hora disponible para el tipo de reunión especificado.

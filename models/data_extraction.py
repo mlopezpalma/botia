@@ -237,11 +237,8 @@ def identificar_datos_personales(texto):
     telefono_pattern = r'\b(?:\+34\s?)?(?:6\d{8}|7[1-9]\d{7}|9\d{8})\b'
     telefono_match = re.search(telefono_pattern, texto)
     if telefono_match:
-        # Extraer el teléfono completo con prefijo si existe
         num_telefono = telefono_match.group(0)
-        # Restaurar el prefijo +34 si el teléfono empieza con 9, 6 o 7 y no tiene prefijo
         if not num_telefono.startswith('+') and (num_telefono.startswith('9') or num_telefono.startswith('6') or num_telefono.startswith('7')):
-            # Si el teléfono en el texto necesita el prefijo pero no lo tiene, añadirlo
             if "+34" in texto and "+34" not in num_telefono:
                 num_telefono = "+34 " + num_telefono
         datos["telefono"] = num_telefono
@@ -256,7 +253,7 @@ def identificar_datos_personales(texto):
         # Tipos de reunión y servicios
         "presencial", "videoconferencia", "telefonica", "telefónica", 
         "virtual", "online", "cita", "consulta", "reunion", "reunión", 
-        "agendar", "legal", "abogado", "despacho", "oficina",
+        "agendar", "legal", "abogado", "despacho", "oficina", "cuanto",
         # Términos relacionados con el servicio
         "tema", "asunto", "motivo", "porque", "sobre", "para", "como", 
         "sobre", "servicio", "servicios", "quiero", "quisiera", "día", "hora", 
@@ -264,115 +261,33 @@ def identificar_datos_personales(texto):
         "semana", "mes", "lunes", "martes", "miércoles", "jueves", "viernes",
         # Palabras relacionadas con el contexto legal
         "caso", "expediente", "demanda", "contrato", "juicio", "derecho",
-        "ley", "legislación", "normativa"
+        "ley", "legislación", "normativa",
+        # Términos temporales
+        "lo", "antes", "lo antes posible", "posible", "urgente", "pronto"
     ]
     
-    # Buscar nombre (patrones mejorados)
-    nombre_patterns = [
-        # Patrones explícitos - estos son prioritarios
+    # Buscar nombre
+    # Primero buscamos patrones explícitos con mayor prioridad
+    nombre_patterns_explicitos = [
         r'me llamo\s+([A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+(?:\s+[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+){0,3})',
         r'mi nombre es\s+([A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+(?:\s+[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+){0,3})',
         r'soy\s+([A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+(?:\s+[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+){0,3})',
-        r'nombre[:\s]+([A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+(?:\s+[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+){0,3})',
-        r'llamarme\s+([A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+(?:\s+[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+){0,3})',
-        r'\blláma\w*\s+([A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+(?:\s+[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+){0,3})',
-        # Patrón para "hola, soy [Nombre]" o variantes
-        r'(?:hola|buenos días|buenas tardes)[,\s]+(?:soy|me llamo)\s+([A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+(?:\s+[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+){0,3})',
-        # Patrón para detectar nombres al final del mensaje, seguidos de punto o en nueva línea
-        r'\b([A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+(?:\s+[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+){0,3})(?:\.|$)',
-        # Patrón para detectar saludos directos: "saludos, [Nombre]" o similar
-        r'(?:saludos|atentamente|cordialmente)[,\s]+([A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+(?:\s+[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+){0,3})'
+        r'nombre[:\s]+([A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+(?:\s+[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+){0,3})'
     ]
     
-    # Función auxiliar para validar nombres candidatos
-    def validar_nombre_candidato(nombre_candidato):
-        if not nombre_candidato:
-            return False
-            
-        # Verificar que no sea una palabra a ignorar
-        palabras_nombre = nombre_candidato.lower().split()
-        if all(palabra in palabras_a_ignorar for palabra in palabras_nombre):
-            return False
-        
-        # Verificar que al menos una palabra comience con mayúscula
-        if not any(palabra[0].isupper() for palabra in nombre_candidato.split()):
-            return False
-        
-        # Verificar la longitud del nombre
-        if len(nombre_candidato) < 3 or len(nombre_candidato) > 50:
-            return False
-            
-        # Verificar que no sea una frase completa (más de 5 palabras probablemente no es un nombre)
-        if len(palabras_nombre) > 5:
-            return False
-            
-        # Verificar que no contenga números
-        if any(char.isdigit() for char in nombre_candidato):
-            return False
-            
-        # Verificar que no sean tipos de reunión
-        tipos_reunion = ["presencial", "videoconferencia", "telefonica", "telefónica", "virtual", "online"]
-        if any(tipo in nombre_candidato.lower() for tipo in tipos_reunion):
-            return False
-            
-        return True
-    
-    # Buscar primero patrones explícitos
-    for pattern in nombre_patterns:
+    for pattern in nombre_patterns_explicitos:
         nombre_match = re.search(pattern, texto, re.IGNORECASE)
         if nombre_match:
             nombre_candidato = nombre_match.group(1).strip()
             
-            if validar_nombre_candidato(nombre_candidato):
-                datos["nombre"] = nombre_candidato
-                break
-    
-    # Si no se encontró nombre con los patrones explícitos, buscar nombres propios
-    if datos["nombre"] is None:
-        # Buscar palabras que comiencen con mayúscula y que formen una secuencia coherente
-        palabras = texto.split()
-        for i, palabra in enumerate(palabras):
-            # Verificar si es el inicio de un nombre propio (palabra con mayúscula inicial)
-            if palabra[0].isupper() and len(palabra) > 1:
-                nombre_candidato = palabra
-                
-                # Comprobar si las siguientes palabras también pueden ser parte del nombre
-                j = i + 1
-                while j < len(palabras) and j < i + 4:  # Limitamos a 4 palabras máximo
-                    siguiente_palabra = palabras[j]
-                    
-                    # Si la siguiente palabra es una inicial (capital seguida de punto)
-                    if siguiente_palabra[0].isupper() and len(siguiente_palabra) == 2 and siguiente_palabra[1] == '.':
-                        nombre_candidato += " " + siguiente_palabra
-                    # Si es una palabra que comienza con mayúscula
-                    elif siguiente_palabra[0].isupper() and len(siguiente_palabra) > 1:
-                        nombre_candidato += " " + siguiente_palabra
-                    # Si es un conector común en nombres (de, la, del, etc.)
-                    elif siguiente_palabra.lower() in ["de", "del", "la", "los", "las", "y", "e"]:
-                        nombre_candidato += " " + siguiente_palabra
-                    else:
-                        break
-                    j += 1
-                
-                # Validar el nombre candidato
-                if validar_nombre_candidato(nombre_candidato):
-                    # Verificar que no esté en medio de una oración que lo invalide
-                    if i > 0:
-                        palabra_anterior = palabras[i-1].lower()
-                        # Si la palabra anterior invalida que sea un nombre, continuar
-                        if palabra_anterior in ["tipo", "cita", "quiero", "presencial", "telefónica", "videoconferencia"]:
-                            continue
-                    
+            # Verificar que no es una palabra a ignorar y que parece un nombre válido
+            palabras_nombre = nombre_candidato.lower().split()
+            if not all(palabra in palabras_a_ignorar for palabra in palabras_nombre):
+                if any(palabra[0].isupper() for palabra in nombre_candidato.split()):
                     datos["nombre"] = nombre_candidato
-                    break
+                    return datos  # Retornar inmediatamente si encontramos un nombre explícito
     
-    # Verificación final: asegurarse de que el nombre identificado no es un tipo de reunión o término del servicio
-    if datos["nombre"]:
-        nombre_lower = datos["nombre"].lower()
-        invalidos = ["presencial", "videoconferencia", "telefonica", "telefónica", "virtual", "online", 
-                    "consulta", "cita", "reunión", "reunion", "legal", "abogado"]
-        
-        if any(invalido in nombre_lower for invalido in invalidos):
-            datos["nombre"] = None
+    # Si no encontramos un patrón explícito, NO buscar nombres sueltos
+    # para evitar confusiones con frases como "lo antes posible"
     
     return datos

@@ -37,28 +37,56 @@
                 </div>
                 
                 <div class="mb-4">
-                    <h5>Instrucciones para conectar con Google Calendar:</h5>
-                    <ol>
-                        <li>Ve a la <a href="https://console.cloud.google.com/" target="_blank">Google Cloud Console</a></li>
-                        <li>Crea un nuevo proyecto o selecciona uno existente</li>
-                        <li>Activa la API de Google Calendar</li>
-                        <li>Configura la pantalla de consentimiento OAuth</li>
-                        <li>Crea credenciales OAuth 2.0 (aplicación de escritorio)</li>
-                        <li>Descarga el archivo de credenciales (JSON) y nómbralo <code>credentials.json</code></li>
-                        <li>Sube el archivo en el formulario siguiente</li>
-                    </ol>
-                </div>
-                
-                <form action="{{ url_for('admin.upload_google_credentials') }}" method="post" enctype="multipart/form-data">
-                    <div class="mb-3">
-                        <label for="credentials_file" class="form-label">Archivo de credenciales de Google</label>
-                        <input type="file" class="form-control" id="credentials_file" name="credentials_file" accept=".json" required>
-                        <div class="form-text">Sube el archivo credentials.json descargado de Google Cloud Console</div>
+                    <h5>Configuración paso a paso:</h5>
+                    
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <h6 class="mb-0">Paso 1: Obtener credenciales de Google</h6>
+                        </div>
+                        <div class="card-body">
+                            <ol>
+                                <li>Ve a la <a href="https://console.cloud.google.com/" target="_blank">Google Cloud Console</a></li>
+                                <li>Crea un nuevo proyecto o selecciona uno existente</li>
+                                <li>Activa la API de Google Calendar</li>
+                                <li>En la sección "Credenciales", crea una credencial OAuth 2.0 (tipo "Web application")</li>
+                                <li>Configura la URI de redirección: <code>{{ url_for('admin.google_callback', _external=True) }}</code></li>
+                                <li>Descarga el archivo JSON de credenciales</li>
+                            </ol>
+                        </div>
                     </div>
-                    <button type="submit" class="btn btn-primary">
-                        <i class="fas fa-upload me-2"></i>Subir credenciales
-                    </button>
-                </form>
+                    
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <h6 class="mb-0">Paso 2: Subir credenciales</h6>
+                        </div>
+                        <div class="card-body">
+                            <form action="{{ url_for('admin.upload_google_credentials') }}" method="post" enctype="multipart/form-data">
+                                <div class="mb-3">
+                                    <label for="credentials_file" class="form-label">Archivo de credenciales de Google</label>
+                                    <input type="file" class="form-control" id="credentials_file" name="credentials_file" accept=".json" required>
+                                    <div class="form-text">Sube el archivo JSON descargado de Google Cloud Console</div>
+                                </div>
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-upload me-2"></i>Subir credenciales
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                    
+                    {% if os.path.exists('credentials.json') %}
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <h6 class="mb-0">Paso 3: Conectar con Google Calendar</h6>
+                        </div>
+                        <div class="card-body">
+                            <p>Las credenciales están cargadas. Ahora haz clic en el botón para conectar con Google Calendar:</p>
+                            <a href="{{ url_for('admin.google_login') }}" class="btn btn-success">
+                                <i class="fas fa-link me-2"></i>Conectar con Google Calendar
+                            </a>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
                 {% endif %}
             </div>
         </div>
