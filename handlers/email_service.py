@@ -199,11 +199,14 @@ def enviar_correo_cancelacion(datos_cliente, fecha, hora, tipo_reunion, tema=Non
         tema: Tema o motivo de la cita (opcional)
     
     Returns:
-        True si se envió correctamente (simulado)
+        True si se envió correctamente
     """
     try:
-        print(f"DEBUG - Simulando envío de correo de CANCELACIÓN a {datos_cliente['email']}")
-        print(f"DEBUG - Asunto: Cancelación de Cita Legal")
+        # Crear mensaje para el cliente
+        msg_cliente = MIMEMultipart()
+        msg_cliente['From'] = EMAIL_CONFIG['sender_email']
+        msg_cliente['To'] = datos_cliente['email']
+        msg_cliente['Subject'] = "Cancelación de Cita Legal"
         
         # Formatear fecha para mostrar
         fecha_dt = datetime.datetime.strptime(fecha, "%Y-%m-%d")
@@ -227,9 +230,15 @@ Gracias por confiar en nuestros servicios legales.
 Atentamente,
 El equipo de Asesoramiento Legal
 """
-        print(f"DEBUG - Cuerpo del mensaje para cliente:\n{mensaje_cliente}")
         
-        # Mensaje para la empresa
+        msg_cliente.attach(MIMEText(mensaje_cliente, 'plain'))
+        
+        # Crear mensaje para la empresa
+        msg_empresa = MIMEMultipart()
+        msg_empresa['From'] = EMAIL_CONFIG['sender_email']
+        msg_empresa['To'] = "empresa@example.com"
+        msg_empresa['Subject'] = "Cancelación de Cita"
+        
         mensaje_empresa = f"""
 CITA CANCELADA
 
@@ -246,10 +255,21 @@ Se ha cancelado la siguiente cita:
         if tema:
             mensaje_empresa += f"- Tema: {tema}\n"
             
-        print(f"DEBUG - Cuerpo del mensaje para la empresa:\n{mensaje_empresa}")
+        msg_empresa.attach(MIMEText(mensaje_empresa, 'plain'))
         
-        # En un entorno real, aquí iría el código para enviar los correos
-        # usando la configuración de EMAIL_CONFIG
+        # Establecer conexión con el servidor SMTP
+        server = smtplib.SMTP(EMAIL_CONFIG['smtp_server'], EMAIL_CONFIG['port'])
+        server.starttls()
+        server.login(EMAIL_CONFIG['sender_email'], EMAIL_CONFIG['password'])
+        
+        # Enviar correos
+        server.send_message(msg_cliente)
+        server.send_message(msg_empresa)
+        
+        # Cerrar conexión
+        server.quit()
+        
+        print(f"DEBUG - Correo de cancelación enviado a {datos_cliente['email']}")
         return True
         
     except Exception as e:
@@ -268,9 +288,21 @@ def enviar_sms_cancelacion(telefono, fecha, hora, tipo_reunion, tema=None):
         tema: Tema o motivo de la cita (opcional)
     
     Returns:
-        True si se envió correctamente (simulado)
+        True si se envió correctamente
     """
+    import os
+    from twilio.rest import Client
+    
     try:
+        # Credenciales de Twilio
+        account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
+        auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
+        twilio_number = os.environ.get('TWILIO_PHONE_NUMBER', '')
+        
+        if not all([account_sid, auth_token, twilio_number]):
+            print("ERROR - Faltan credenciales de Twilio para enviar SMS")
+            return False
+        
         # Formatear fecha para mostrar
         fecha_dt = datetime.datetime.strptime(fecha, "%Y-%m-%d")
         fecha_formateada = fecha_dt.strftime("%d/%m/%Y")
@@ -283,10 +315,21 @@ def enviar_sms_cancelacion(telefono, fecha, hora, tipo_reunion, tema=None):
             
         mensaje += "Gracias por utilizar nuestros servicios."
         
-        print(f"DEBUG - Simulando envío de SMS de cancelación a {telefono}")
-        print(f"DEBUG - Mensaje: {mensaje}")
+        # Limpiar número de teléfono (quitar espacios, guiones, etc.)
+        import re
+        telefono_limpio = re.sub(r'[\s\-\(\)\+]', '', telefono)
+        if not telefono_limpio.startswith('+'):
+            telefono_limpio = '+34' + telefono_limpio  # Añadir prefijo España si no tiene código de país
+            
+        # Enviar SMS con Twilio
+        client = Client(account_sid, auth_token)
+        message = client.messages.create(
+            body=mensaje,
+            from_=twilio_number,
+            to=telefono_limpio
+        )
         
-        # En un entorno real, aquí iría el código para enviar SMS con Twilio
+        print(f"DEBUG - SMS de cancelación enviado a {telefono} con SID: {message.sid}")
         return True
         
     except Exception as e:

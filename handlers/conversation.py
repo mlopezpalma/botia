@@ -10,7 +10,7 @@ from handlers.calendar_service import (
     encontrar_proxima_fecha_disponible,
     agendar_en_calendario
 )
-from handlers.email_service import enviar_correo_confirmacion, enviar_sms_confirmacion
+from handlers.email_service import enviar_correo_confirmacion, enviar_sms_confirmacion, enviar_correo_cancelacion, enviar_sms_cancelacion
 
 # Añadir importación de casos_db y ESTADOS_CASO al inicio del archivo
 from config import HORARIOS_POR_TIPO, TIPOS_REUNION, INTENCIONES, MENSAJES_MENU, citas_db, clientes_db, casos_db, ESTADOS_CASO
@@ -54,6 +54,19 @@ def reset_conversacion(user_id, user_states):
 
 def generar_respuesta(mensaje, user_id, user_states):
     print(f"DEBUG - generar_respuesta recibió: '{mensaje}' de usuario: {user_id}")
+
+    # NUEVO: Manejo especial para cancelación de citas
+    if "cancelar" in mensaje_lower and "cita" in mensaje_lower:
+        if estado_usuario["estado"] in ["esperando_seleccion_cita_cancelar", "esperando_confirmacion_cancelacion", "esperando_datos_cancelacion"]:
+            # Ya estamos en proceso de cancelación, procesar selección o confirmación
+            return procesar_seleccion_cancelacion(mensaje, user_id, user_states)
+        else:
+            # Iniciar proceso de cancelación
+            return cancelar_cita_cliente(user_id, user_states)
+    
+    # Continuar con estados de cancelación
+    if estado_usuario["estado"] in ["esperando_seleccion_cita_cancelar", "esperando_confirmacion_cancelacion"]:
+        return procesar_seleccion_cancelacion(mensaje, user_id, user_states)
     
     # Estado del usuario
     if user_id not in user_states:
@@ -634,6 +647,7 @@ def _confirmar_cita(estado_usuario, user_id, user_states):
 def _buscar_cliente_por_email(email):
     """
     Busca si un cliente existe en la base de datos por su email.
+    Versión mejorada con debugging y normalización.
     
     Args:
         email: Email del cliente a buscar
@@ -641,8 +655,38 @@ def _buscar_cliente_por_email(email):
     Returns:
         Diccionario con los datos del cliente si existe, None en caso contrario
     """
+    if not email:
+        return None
+        
+    # Normalizar el email (minúsculas y sin espacios)
+    email = email.lower().strip()
+    
+    print(f"DEBUG - Buscando cliente por email: {email}")
+    
+    # Buscar en la base de datos en memoria
     if email in clientes_db:
+        print(f"DEBUG - Cliente encontrado en DB por email: {email}")
         return clientes_db[email]
+    
+    # Si no está en memoria, intentar buscar en la base de datos SQLite
+    try:
+        from db_manager import DatabaseManager
+        db = DatabaseManager()
+        cliente = db.get_cliente_by_email(email)
+        if cliente:
+            print(f"DEBUG - Cliente encontrado en SQLite por email: {email}")
+            # Actualizar la base de datos en memoria para futuras consultas
+            clientes_db[email] = {
+                "nombre": cliente.get('nombre'),
+                "email": cliente.get('email'),
+                "telefono": cliente.get('telefono'),
+                "citas": []
+            }
+            return clientes_db[email]
+    except Exception as e:
+        print(f"ERROR - No se pudo buscar en SQLite: {str(e)}")
+    
+    print(f"DEBUG - No se encontró cliente con email: {email}")
     return None
 
 # 2. Añadir una función para buscar clientes por teléfono
@@ -651,6 +695,7 @@ def _buscar_cliente_por_email(email):
 def _buscar_cliente_por_telefono(telefono):
     """
     Busca si un cliente existe en la base de datos por su teléfono.
+    Versión mejorada con debugging y normalización.
     
     Args:
         telefono: Número de teléfono del cliente a buscar
@@ -658,11 +703,46 @@ def _buscar_cliente_por_telefono(telefono):
     Returns:
         Diccionario con los datos del cliente si existe, None en caso contrario
     """
+    if not telefono:
+        return None
+        
+    # Normalizar el teléfono (eliminar espacios, guiones, etc.)
+    import re
+    telefono_limpio = re.sub(r'[\s\-\(\)\+]', '', telefono)
+    
+    print(f"DEBUG - Buscando cliente por teléfono: {telefono} (normalizado: {telefono_limpio})")
+    
+    # Buscar en la base de datos en memoria
     for email, cliente in clientes_db.items():
-        if cliente.get("telefono") == telefono:
-            return cliente
+        tel_cliente = cliente.get("telefono", "")
+        if tel_cliente:
+            tel_cliente_limpio = re.sub(r'[\s\-\(\)\+]', '', tel_cliente)
+            if tel_cliente_limpio == telefono_limpio:
+                print(f"DEBUG - Cliente encontrado en DB por teléfono: {email}")
+                return cliente
+    
+    # Si no está en memoria, intentar buscar en la base de datos SQLite
+    try:
+        from db_manager import DatabaseManager
+        db = DatabaseManager()
+        cliente = db.get_cliente_by_telefono(telefono)
+        if cliente:
+            print(f"DEBUG - Cliente encontrado en SQLite por teléfono: {telefono}")
+            # Actualizar la base de datos en memoria para futuras consultas
+            email = cliente.get('email')
+            if email:
+                clientes_db[email] = {
+                    "nombre": cliente.get('nombre'),
+                    "email": cliente.get('email'),
+                    "telefono": cliente.get('telefono'),
+                    "citas": []
+                }
+                return clientes_db[email]
+    except Exception as e:
+        print(f"ERROR - No se pudo buscar en SQLite: {str(e)}")
+    
+    print(f"DEBUG - No se encontró cliente con teléfono: {telefono}")
     return None
-
 
 # Añade estas funciones auxiliares para la consulta de casos al final del archivo
 
@@ -990,91 +1070,6 @@ def procesar_seleccion_cancelacion(mensaje, user_id, user_states):
     
     # Estado incorrecto
     return "Lo siento, ha ocurrido un error en el proceso de cancelación. Por favor, intenta nuevamente o contacta con nuestras oficinas."
-# Añadir también las funciones para enviar notificaciones de cancelación en email_service.py
 
-def enviar_correo_cancelacion(datos_cliente, fecha, hora, tipo_reunion):
-    """
-    Envía un correo electrónico notificando la cancelación de una cita.
-    
-    Args:
-        datos_cliente: Diccionario con datos del cliente
-        fecha: Fecha en formato "YYYY-MM-DD"
-        hora: Hora en formato "HH:MM"
-        tipo_reunion: Tipo de reunión
-    
-    Returns:
-        True si se envió correctamente (simulado)
-    """
-    # En un entorno real, se usaría SMTP para enviar correos
-    # Aquí simulamos el envío imprimiendo en consola
-    print(f"DEBUG - Simulando envío de correo de CANCELACIÓN a {datos_cliente['email']}")
-    print(f"DEBUG - Asunto: Cancelación de Cita Legal")
-    
-    # Formatear fecha para mostrar
-    fecha_dt = datetime.datetime.strptime(fecha, "%Y-%m-%d")
-    fecha_formateada = fecha_dt.strftime("%d/%m/%Y (%A)")
-    
-    # Mensaje para el cliente
-    mensaje_cliente = f"""
-Estimado/a {datos_cliente['nombre']},
 
-Tu cita {tipo_reunion} del {fecha_formateada} a las {hora} ha sido cancelada correctamente.
 
-Si necesitas reagendar, puedes hacerlo respondiendo a este correo o llamando al teléfono de atención al cliente.
-
-Gracias por confiar en nuestros servicios legales.
-
-Atentamente,
-El equipo de Asesoramiento Legal
-"""
-    print(f"DEBUG - Cuerpo del mensaje para cliente:\n{mensaje_cliente}")
-    
-    # Mensaje para la empresa
-    mensaje_empresa = f"""
-CITA CANCELADA
-
-Se ha cancelado la siguiente cita:
-
-- Cliente: {datos_cliente['nombre']}
-- Email: {datos_cliente['email']}
-- Teléfono: {datos_cliente['telefono']}
-- Tipo: {tipo_reunion}
-- Fecha: {fecha_formateada}
-- Hora: {hora}
-"""
-    print(f"DEBUG - Cuerpo del mensaje para la empresa:\n{mensaje_empresa}")
-    
-    # En un entorno real, aquí iría el código para enviar los correos
-    return True
-
-def enviar_sms_cancelacion(telefono, fecha, hora, tipo_reunion):
-    """
-    Envía un SMS notificando la cancelación de una cita.
-    
-    Args:
-        telefono: Número de teléfono del cliente
-        fecha: Fecha en formato "YYYY-MM-DD"
-        hora: Hora en formato "HH:MM"
-        tipo_reunion: Tipo de reunión
-    
-    Returns:
-        True si se envió correctamente (simulado)
-    """
-    try:
-        # Formatear fecha para mostrar
-        fecha_dt = datetime.datetime.strptime(fecha, "%Y-%m-%d")
-        fecha_formateada = fecha_dt.strftime("%d/%m/%Y")
-        
-        # Crear mensaje SMS
-        mensaje = f"Confirmamos la cancelación de tu cita legal {tipo_reunion} del {fecha_formateada} a las {hora}. " + \
-                  f"Gracias por utilizar nuestros servicios."
-        
-        print(f"DEBUG - Simulando envío de SMS de cancelación a {telefono}")
-        print(f"DEBUG - Mensaje: {mensaje}")
-        
-        # En un entorno real, aquí iría el código para enviar el SMS usando Twilio
-        return True
-        
-    except Exception as e:
-        print(f"ERROR - No se pudo enviar el SMS de cancelación: {str(e)}")
-        return False
