@@ -55,6 +55,16 @@ def reset_conversacion(user_id, user_states):
 def generar_respuesta(mensaje, user_id, user_states):
     print(f"DEBUG - generar_respuesta recibió: '{mensaje}' de usuario: {user_id}")
 
+     # Preparar el mensaje en minúsculas para análisis
+    mensaje_lower = mensaje.lower().strip()
+
+    # Estado del usuario
+    if user_id not in user_states:
+        reset_conversacion(user_id, user_states)
+
+    estado_usuario = user_states[user_id]
+    print(f"DEBUG - estado actual del usuario: {estado_usuario['estado']}")
+
     # NUEVO: Manejo especial para cancelación de citas
     if "cancelar" in mensaje_lower and "cita" in mensaje_lower:
         if estado_usuario["estado"] in ["esperando_seleccion_cita_cancelar", "esperando_confirmacion_cancelacion", "esperando_datos_cancelacion"]:
@@ -65,18 +75,13 @@ def generar_respuesta(mensaje, user_id, user_states):
             return cancelar_cita_cliente(user_id, user_states)
     
     # Continuar con estados de cancelación
-    if estado_usuario["estado"] in ["esperando_seleccion_cita_cancelar", "esperando_confirmacion_cancelacion"]:
+    if estado_usuario["estado"] in ["esperando_seleccion_cita_cancelar", "esperando_confirmacion_cancelacion", "esperando_datos_cancelacion"]:
         return procesar_seleccion_cancelacion(mensaje, user_id, user_states)
     
-    # Estado del usuario
-    if user_id not in user_states:
-        reset_conversacion(user_id, user_states)
     
-    estado_usuario = user_states[user_id]
-    print(f"DEBUG - estado actual del usuario: {estado_usuario['estado']}")
     
     # NUEVO: Detectar despedida o finalización
-    mensaje_lower = mensaje.lower().strip()
+    
     palabras_despedida = ["no gracias", "adiós", "adios", "hasta luego", "terminar", 
                          "finalizar", "cerrar", "no quiero", "no deseo", "eso es todo",
                          "nada más", "no necesito", "gracias", "ya está", "ya terminé"]
@@ -106,7 +111,7 @@ def generar_respuesta(mensaje, user_id, user_states):
             return cancelar_cita_cliente(user_id, user_states)
     
     # Continuar con estados de cancelación
-    if estado_usuario["estado"] in ["esperando_seleccion_cita_cancelar", "esperando_confirmacion_cancelacion"]:
+    if estado_usuario["estado"] in ["esperando_seleccion_cita_cancelar", "esperando_confirmacion_cancelacion", "esperando_datos_cancelacion"]:
         return procesar_seleccion_cancelacion(mensaje, user_id, user_states)
     
     # Procesamiento directo para respuestas simples según el estado
@@ -153,7 +158,7 @@ def generar_respuesta(mensaje, user_id, user_states):
         if intencion == "saludo":
             estado_usuario["estado"] = "esperando_inicio"
             return ("¡Hola! Soy el asistente de citas legales. Puedo ayudarte a agendar una consulta con nuestros abogados o consultar el estado de tu caso.\n" + 
-                    "¿Qué te gustaría hacer? [MENU:Agendar una cita|Consultar estado de mi caso]")
+                    "¿Qué te gustaría hacer? [MENU:Agendar una cita|Consultar estado de mi caso|Cancelar cita]")
         
         elif intencion == "agendar":
             estado_usuario["estado"] = "esperando_tipo_reunion"
@@ -167,13 +172,23 @@ def generar_respuesta(mensaje, user_id, user_states):
             # Si no se identifica intención específica, ofrecer opciones
             estado_usuario["estado"] = "esperando_inicio"
             return ("Bienvenido al asistente de citas legales. Puedo ayudarte a agendar una consulta o verificar el estado de tu caso.\n" + 
-                   "¿Qué te gustaría hacer? [MENU:Agendar una cita|Consultar estado de mi caso]")
+                   "¿Qué te gustaría hacer? [MENU:Agendar una cita|Consultar estado de mi caso|Cancelar cita]")
     
     elif estado_usuario["estado"] == "esperando_inicio":
-         # Si el usuario selecciona "Agendar una cita"
+        # Si el usuario selecciona "Agendar una cita"
         if mensaje_lower == "agendar una cita" or "agendar" in mensaje_lower or "cita" in mensaje_lower:
             estado_usuario["estado"] = "esperando_tipo_reunion"
             return MENSAJES_MENU["tipo_reunion"]
+        
+        # Si el usuario selecciona "Cancelar cita"
+        elif mensaje_lower == "cancelar cita" or "cancelar" in mensaje_lower:
+            return cancelar_cita_cliente(user_id, user_states)
+        
+        # Verificar si quiere consultar estado del caso
+        elif "estado" in mensaje_lower or "consultar" in mensaje_lower or "caso" in mensaje_lower or "expediente" in mensaje_lower:
+            estado_usuario["estado"] = "esperando_opcion_consulta"
+            return MENSAJES_MENU["consulta_estado"]
+        
         # Verificar si el mensaje es un tipo de reunión
         tipo_reunion = identificar_tipo_reunion(mensaje)
         
@@ -846,6 +861,7 @@ def cancelar_cita_cliente(user_id, user_states, datos_cliente=None):
                 "nombre": estado_usuario["datos"].get("nombre"),
                 "telefono": estado_usuario["datos"].get("telefono")
             }
+            print(f"DEBUG - Usando datos del estado: {datos_cliente}")
         else:
             estado_usuario["estado"] = "esperando_datos_cancelacion"
             return "Para cancelar una cita, necesito verificar tu identidad. Por favor, indícame tu email o teléfono."
