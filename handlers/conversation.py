@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 # Modificar la función reset_conversacion para incluir el nuevo estado
+# Modificar la función reset_conversacion para incluir la información de documentos
 def reset_conversacion(user_id, user_states, preserve_user_data=True):
     """
     Reinicia el estado de la conversación para un usuario específico.
@@ -53,9 +54,46 @@ def reset_conversacion(user_id, user_states, preserve_user_data=True):
             "numero_expediente": None,
             "email_cliente": None,
             "caso_encontrado": False
-        }
+        },
+        "documentos_pendientes": False,  # Añadir esta línea para rastrear si hay documentos pendientes
+        "cita_id_temp": None,  # ID temporal de cita para asociar documentos
+        "doc_upload_token": None  # Token para subir documentos después de la conversación
     }
     print(f"DEBUG - Conversación reiniciada para usuario: {user_id}, datos preservados: {preserve_user_data}")
+
+# Añadir esta función para manejar la solicitud de documentos
+def _solicitar_documentos(estado_usuario):
+    """Solicita al usuario documentos para la cita."""
+    estado_usuario["documentos_pendientes"] = True
+    
+    # Generar un token único para identificar la sesión de carga
+    import hashlib
+    import time
+    import random
+    
+    token_base = f"{estado_usuario.get('cita_id_temp', '')}-{time.time()}-{random.randint(1000, 9999)}"
+    token = hashlib.md5(token_base.encode()).hexdigest()
+    
+    estado_usuario["doc_upload_token"] = token
+    
+    # Generar el mensaje de solicitud de documentos
+    mensaje = """
+¿Deseas adjuntar algún documento para esta cita? Esto puede ser útil para que el abogado pueda revisar previamente información relevante.
+
+Puedes subir documentos como:
+- Contratos
+- Facturas
+- Escrituras
+- Identificaciones
+- Cualquier otro documento relevante para tu consulta
+
+Si deseas adjuntar algún documento, puedes hacerlo ahora o después de la cita usando el panel de cliente.
+[MENU:Sí, quiero adjuntar documentos|No, continuaré sin documentos]
+"""
+    return mensaje
+
+
+
 
 def generar_respuesta(mensaje, user_id, user_states):
     print(f"DEBUG - generar_respuesta recibió: '{mensaje}' de usuario: {user_id}")
@@ -555,6 +593,35 @@ def generar_respuesta(mensaje, user_id, user_states):
         else:
             return "No he podido encontrar ningún caso con el número de expediente proporcionado. Por favor, verifica el número e inténtalo de nuevo, o elige otra opción. " + MENSAJES_MENU["consulta_estado"]
 
+        # Añadir al final de generar_respuesta() este nuevo case para manejar la decisión de documentos
+    elif estado_usuario["estado"] == "esperando_decision_documentos":
+       # Procesar la respuesta sobre documentos
+        if "sí" in mensaje_lower or "si" in mensaje_lower or "quiero adjuntar" in mensaje_lower or mensaje_lower == "sí, quiero adjuntar documentos":
+            # Usuario quiere adjuntar documentos
+            # Generar enlace de carga temporal
+            upload_token = estado_usuario["doc_upload_token"]
+            cita_id = estado_usuario["cita_id_temp"]
+        
+            enlace_carga = f"/documentos/subir/{upload_token}"
+        
+            # Reiniciar estado conservando los datos del usuario
+            reset_conversacion(user_id, user_states, preserve_user_data=True)
+        
+            return (f"Puedes subir los documentos para tu cita utilizando el siguiente enlace:\n\n"
+                    f"{enlace_carga}\n\n"
+                    f"Este enlace estará disponible durante las próximas 24 horas. También puedes subir documentos "
+                    f"más adelante a través del panel de cliente.\n\n"
+                    f"¿Hay algo más en lo que pueda ayudarte?")
+        else:
+            # Usuario no quiere adjuntar documentos
+            # Reiniciar estado conservando los datos del usuario
+            reset_conversacion(user_id, user_states, preserve_user_data=True)
+        
+            return ("Perfecto, no se adjuntarán documentos a tu cita. Si necesitas enviar algún documento más adelante, "
+                    "podrás hacerlo a través del panel de cliente.\n\n"
+                    "¿Hay algo más en lo que pueda ayudarte?")
+
+
     # Si no coincide con ningún estado específico, respuesta genérica
     return "Disculpa, no he entendido tu solicitud. ¿Puedes reformularla? Puedo ayudarte a agendar citas legales presenciales, por videoconferencia o telefónicas."
 
@@ -643,6 +710,8 @@ def _preguntar_cambios(estado_usuario):
     return ("¿Qué información deseas cambiar?\n"
             "[MENU:Fecha y hora|Tipo de reunión|Tema|Mis datos personales]")
 
+
+# Modificar la función _confirmar_cita para incluir la gestión de documentos
 def _confirmar_cita(estado_usuario, user_id, user_states):
     """Confirma la cita y resetea el estado del usuario"""
     # Agendar cita en el calendario
@@ -676,7 +745,6 @@ def _confirmar_cita(estado_usuario, user_id, user_states):
         except Exception as e:
             print(f"Error al enviar SMS: {str(e)}")
     
-    
     # Guardar en base de datos
     cita_id = f"cita_{len(citas_db) + 1:04d}"
     citas_db[cita_id] = {
@@ -698,17 +766,33 @@ def _confirmar_cita(estado_usuario, user_id, user_states):
             clientes_db[cliente_id]["citas"] = []
         clientes_db[cliente_id]["citas"].append(cita_id)
     
+    # Guardar ID de cita para posible asociación con documentos
+    estado_usuario["cita_id_temp"] = cita_id
+    
     # Generar mensaje de confirmación
     fecha_formateada = datetime.datetime.strptime(estado_usuario["fecha"], "%Y-%m-%d").strftime("%d/%m/%Y")
     duracion = TIPOS_REUNION[estado_usuario["tipo_reunion"]]["duracion_cliente"]
     
-    # Reiniciar estado pero preservar datos del usuario
-    reset_conversacion(user_id, user_states, preserve_user_data=True)
-    
-    return (f"¡Cita confirmada con éxito! Se ha agendado una consulta legal {estado_usuario['tipo_reunion']} para el {fecha_formateada} a las {estado_usuario['hora']} ({duracion} minutos).\n\n"
-            f"Tema de la consulta: {estado_usuario['tema_reunion']}\n\n"
-            f"Hemos enviado un correo de confirmación a {estado_usuario['datos']['email']} con todos los detalles.\n\n"
-            f"Gracias por usar nuestro servicio. ¿Hay algo más en lo que pueda ayudarte?")
+    # Preguntar si desea adjuntar documentos
+    if not estado_usuario["documentos_pendientes"]:
+        estado_usuario["estado"] = "esperando_decision_documentos"
+        
+        mensaje_confirmacion = (f"¡Cita confirmada con éxito! Se ha agendado una consulta legal {estado_usuario['tipo_reunion']} "
+                               f"para el {fecha_formateada} a las {estado_usuario['hora']} ({duracion} minutos).\n\n"
+                               f"Tema de la consulta: {estado_usuario['tema_reunion']}\n\n"
+                               f"Hemos enviado un correo de confirmación a {estado_usuario['datos']['email']} con todos los detalles.\n\n")
+        
+        return mensaje_confirmacion + _solicitar_documentos(estado_usuario)
+    else:
+        # Si ya se decidió sobre los documentos, finalizar normalmente
+        # Reiniciar estado pero preservar datos del usuario
+        reset_conversacion(user_id, user_states, preserve_user_data=True)
+        
+        return (f"¡Cita confirmada con éxito! Se ha agendado una consulta legal {estado_usuario['tipo_reunion']} "
+                f"para el {fecha_formateada} a las {estado_usuario['hora']} ({duracion} minutos).\n\n"
+                f"Tema de la consulta: {estado_usuario['tema_reunion']}\n\n"
+                f"Hemos enviado un correo de confirmación a {estado_usuario['datos']['email']} con todos los detalles.\n\n"
+                f"Gracias por usar nuestro servicio. ¿Hay algo más en lo que pueda ayudarte?")
 
 
 

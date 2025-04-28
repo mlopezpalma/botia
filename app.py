@@ -4,6 +4,8 @@ import logging
 from handlers.conversation import generar_respuesta, reset_conversacion
 from db_manager import DatabaseManager
 from datetime import timedelta
+from document_manager import DocumentManager
+from flask import send_file
 
 # Configurar logging
 logging.basicConfig(
@@ -53,7 +55,21 @@ def initialize_database():
         db_manager.import_from_memory(clientes_db, citas_db, casos_db)
         logger.info("Base de datos inicializada correctamente.")
     
+    
+
+
+    # Inicializar gestor de documentos
+    upload_dir = os.environ.get('UPLOAD_DIR', 'uploads')
+    document_manager = DocumentManager(upload_dir=upload_dir, db_manager=db_manager)
+
+     # Asegurar que existen los directorios de documentos
+    try:
+        document_manager.create_directories()
+    except Exception as e:
+        logger.error(f"Error al crear directorios para documentos: {str(e)}")
+
     database_initialized = True
+
 
 # Registrar las rutas del panel de administración
 from admin_routes import admin_bp
@@ -352,6 +368,145 @@ def widget_js():
     # Servir el archivo JavaScript del widget desde la carpeta static
     return send_from_directory('static', 'chat-widget.js')
 
+
+# Rutas para APIs de documentos
+@app.route('/api/documentos/<int:documento_id>', methods=['GET'])
+def get_documento_api(documento_id):
+    try:
+        documento = db_manager.get_documento(documento_id)
+        if not documento:
+            return jsonify({"success": False, "message": "Documento no encontrado"}), 404
+        return jsonify({"success": True, "documento": documento})
+    except Exception as e:
+        logger.error(f"Error al obtener documento: {str(e)}")
+        return jsonify({"success": False, "message": f"Error: {str(e)}"}), 500
+
+@app.route('/api/documentos/cliente/<int:cliente_id>', methods=['GET'])
+def get_documentos_cliente_api(cliente_id):
+    try:
+        documentos = db_manager.get_documentos_cliente(cliente_id)
+        return jsonify({"success": True, "documentos": documentos})
+    except Exception as e:
+        logger.error(f"Error al obtener documentos del cliente: {str(e)}")
+        return jsonify({"success": False, "message": f"Error: {str(e)}"}), 500
+
+@app.route('/api/documentos/proyecto/<int:proyecto_id>', methods=['GET'])
+def get_documentos_proyecto_api(proyecto_id):
+    try:
+        documentos = db_manager.get_documentos_proyecto(proyecto_id)
+        return jsonify({"success": True, "documentos": documentos})
+    except Exception as e:
+        logger.error(f"Error al obtener documentos del proyecto: {str(e)}")
+        return jsonify({"success": False, "message": f"Error: {str(e)}"}), 500
+
+@app.route('/api/documentos/cita/<int:cita_id>', methods=['GET'])
+def get_documentos_cita_api(cita_id):
+    try:
+        documentos = db_manager.get_documentos_cita(cita_id)
+        return jsonify({"success": True, "documentos": documentos})
+    except Exception as e:
+        logger.error(f"Error al obtener documentos de la cita: {str(e)}")
+        return jsonify({"success": False, "message": f"Error: {str(e)}"}), 500
+
+@app.route('/api/documentos/upload/<string:entity_type>/<int:entity_id>', methods=['POST'])
+def upload_documento_api(entity_type, entity_id):
+    try:
+        # Verificar que se ha subido un archivo
+        if 'file' not in request.files:
+            return jsonify({"success": False, "message": "No se seleccionó ningún archivo"}), 400
+        
+        file = request.files['file']
+        
+        # Verificar que tiene un nombre
+        if file.filename == '':
+            return jsonify({"success": False, "message": "No se seleccionó ningún archivo"}), 400
+        
+        # Obtener notas (opcional)
+        notas = request.form.get('notas', None)
+        
+        # Procesar entidad
+        if entity_type not in ['cliente', 'proyecto', 'cita']:
+            return jsonify({"success": False, "message": "Tipo de entidad no válido"}), 400
+        
+        # Verificar que la entidad existe
+        entity_exists = False
+        if entity_type == 'cliente':
+            cliente = db_manager.get_cliente_by_id(entity_id)
+            entity_exists = cliente is not None
+        elif entity_type == 'proyecto':
+            proyecto = db_manager.get_proyecto(entity_id)
+            entity_exists = proyecto is not None
+        elif entity_type == 'cita':
+            cita = db_manager.get_cita(entity_id)
+            entity_exists = cita is not None
+        
+        if not entity_exists:
+            return jsonify({"success": False, "message": f"La entidad {entity_type} con ID {entity_id} no existe"}), 404
+        
+        # Subir documento
+        doc_id = document_manager.upload_documento(file, entity_type, entity_id, notas)
+        
+        if doc_id:
+            return jsonify({"success": True, "documento_id": doc_id, "message": "Documento subido correctamente"})
+        else:
+            return jsonify({"success": False, "message": "Error al subir documento"}), 500
+        
+    except Exception as e:
+        logger.error(f"Error al subir documento: {str(e)}")
+        return jsonify({"success": False, "message": f"Error: {str(e)}"}), 500
+
+@app.route('/api/documentos/delete/<int:documento_id>', methods=['DELETE'])
+def delete_documento_api(documento_id):
+    try:
+        result = db_manager.delete_documento(documento_id)
+        if result:
+            return jsonify({"success": True, "message": "Documento eliminado correctamente"})
+        else:
+            return jsonify({"success": False, "message": "No se pudo eliminar el documento"}), 500
+    except Exception as e:
+        logger.error(f"Error al eliminar documento: {str(e)}")
+        return jsonify({"success": False, "message": f"Error: {str(e)}"}), 500
+
+@app.route('/documentos/download/<int:documento_id>')
+def download_documento(documento_id):
+    try:
+        result = document_manager.download_documento(documento_id)
+        
+        if not result:
+            return "Documento no encontrado", 404
+        
+        file_path, original_name, mime_type = result
+        
+        # Enviar archivo para descarga
+        return send_file(
+            file_path,
+            mimetype=mime_type,
+            as_attachment=True,
+            download_name=original_name
+        )
+    except Exception as e:
+        logger.error(f"Error al descargar documento: {str(e)}")
+        return f"Error al descargar documento: {str(e)}", 500
+
+# Crear una tabla en SQLite para manejar tokens de carga de documentos
+@app.before_first_request
+def create_upload_tokens_table():
+    conn = sqlite3.connect(db_manager.db_file)
+    cursor = conn.cursor()
+    
+    # Tabla para tokens de carga temporales
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS upload_tokens (
+        token TEXT PRIMARY KEY,
+        cita_id TEXT NOT NULL,
+        fecha_creacion TEXT NOT NULL,
+        fecha_expiracion TEXT NOT NULL,
+        usado INTEGER DEFAULT 0
+    )
+    ''')
+    
+    conn.commit()
+    conn.close()
 # Importar la integración de WhatsApp
 from whatsapp_integration import WhatsAppBot
 
@@ -362,3 +517,143 @@ if __name__ == '__main__':
     # Inicializar la base de datos antes de iniciar la aplicación
     initialize_database()
     app.run(debug=True)
+
+
+# Función para crear tokens de carga
+def create_upload_token(cita_id):
+    """Crea un token de carga temporal para una cita."""
+    import hashlib
+    import time
+    import random
+    import datetime
+    
+    # Generar token
+    token_base = f"{cita_id}-{time.time()}-{random.randint(1000, 9999)}"
+    token = hashlib.md5(token_base.encode()).hexdigest()
+    
+    # Fechas de creación y expiración
+    now = datetime.datetime.now()
+    expiration = now + datetime.timedelta(hours=24)
+    
+    # Guardar en la base de datos
+    conn = sqlite3.connect(db_manager.db_file)
+    cursor = conn.cursor()
+    
+    cursor.execute(
+        "INSERT INTO upload_tokens (token, cita_id, fecha_creacion, fecha_expiracion, usado) VALUES (?, ?, ?, ?, ?)",
+        (token, cita_id, now.strftime("%Y-%m-%d %H:%M:%S"), expiration.strftime("%Y-%m-%d %H:%M:%S"), 0)
+    )
+    
+    conn.commit()
+    conn.close()
+    
+    return token
+
+# Función para validar tokens de carga
+def validate_upload_token(token):
+    """Valida un token de carga y lo marca como usado."""
+    conn = sqlite3.connect(db_manager.db_file)
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT cita_id, fecha_expiracion, usado FROM upload_tokens WHERE token = ?", (token,))
+    result = cursor.fetchone()
+    
+    if not result:
+        conn.close()
+        return None
+    
+    cita_id, fecha_expiracion, usado = result
+    
+    # Verificar si el token ya fue usado
+    if usado:
+        conn.close()
+        return None
+    
+    # Verificar si el token ha expirado
+    import datetime
+    expiration = datetime.datetime.strptime(fecha_expiracion, "%Y-%m-%d %H:%M:%S")
+    now = datetime.datetime.now()
+    
+    if now > expiration:
+        conn.close()
+        return None
+    
+    # Marcar el token como usado
+    cursor.execute("UPDATE upload_tokens SET usado = 1 WHERE token = ?", (token,))
+    conn.commit()
+    conn.close()
+    
+    return cita_id
+
+# Ruta pública para subir documentos con token
+@app.route('/documentos/subir/<string:token>', methods=['GET', 'POST'])
+def upload_document_by_token(token):
+    """Permite subir documentos utilizando un token temporal."""
+    if request.method == 'POST':
+        # Validar token
+        cita_id = validate_upload_token(token)
+        
+        if not cita_id:
+            return render_template('upload_error.html', error="El enlace ha expirado o no es válido.")
+        
+        # Convertir el cita_id de formato string "cita_XXXX" a entero
+        numeric_id = int(cita_id.split('_')[1]) if cita_id.startswith('cita_') else int(cita_id)
+        
+        # Verificar que se ha subido un archivo
+        if 'file' not in request.files:
+            return render_template('upload_document.html', 
+                                 token=token, 
+                                 error="No se seleccionó ningún archivo",
+                                 max_files=5)
+        
+        files = request.files.getlist('file')
+        
+        if not files or files[0].filename == '':
+            return render_template('upload_document.html', 
+                                 token=token, 
+                                 error="No se seleccionó ningún archivo",
+                                 max_files=5)
+        
+        # Verificar número máximo de archivos
+        if len(files) > 5:
+            return render_template('upload_document.html', 
+                                 token=token, 
+                                 error="Máximo 5 archivos permitidos",
+                                 max_files=5)
+        
+        # Obtener notas (opcional)
+        notas = request.form.get('notas', None)
+        
+        # Inicializar gestor de documentos
+        from document_manager import DocumentManager
+        doc_manager = DocumentManager(upload_dir='uploads', db_manager=db_manager)
+        
+        # Procesar cada archivo
+        uploaded_files = []
+        errors = []
+        
+        for file in files:
+            try:
+                # Subir documento
+                doc_id = doc_manager.upload_documento(file, 'cita', numeric_id, notas)
+                
+                if doc_id:
+                    uploaded_files.append(file.filename)
+                else:
+                    errors.append(f"Error al subir el archivo {file.filename}")
+            except Exception as e:
+                errors.append(f"Error: {str(e)}")
+        
+        if uploaded_files:
+            return render_template('upload_success.html', 
+                                 files=uploaded_files, 
+                                 errors=errors)
+        else:
+            return render_template('upload_document.html', 
+                                 token=token, 
+                                 error="Error al subir los archivos", 
+                                 errors=errors,
+                                 max_files=5)
+    
+    # GET: Mostrar formulario de carga
+    return render_template('upload_document.html', token=token, max_files=5)

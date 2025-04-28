@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subir Documentos | BotIA</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        body {
+            background-color: #f8f9fa;
+            font-family: Arial, sans-serif;
+        }
+        .upload-container {
+            max-width: 700px;
+            margin: 30px auto;
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+            padding: 30px;
+        }
+        .logo {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .logo h1 {
+            color: #2c3e50;
+            font-weight: bold;
+        }
+        .preview-container {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px dashed #ccc;
+            border-radius: 5px;
+            background-color: #f8f9fa;
+        }
+        .file-preview {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+            padding: 10px;
+            background-color: white;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+        .file-preview i {
+            font-size: 24px;
+            margin-right: 15px;
+        }
+        .file-info {
+            flex-grow: 1;
+        }
+        .file-name {
+            font-weight: bold;
+            margin-bottom: 3px;
+        }
+        .file-size {
+            color: #6c757d;
+            font-size: 0.8rem;
+        }
+        .remove-file {
+            color: #dc3545;
+            cursor: pointer;
+            padding: 5px;
+        }
+        .drag-area {
+            border: 2px dashed #ccc;
+            padding: 30px;
+            text-align: center;
+            border-radius: 5px;
+            background-color: #f8f9fa;
+            transition: all 0.3s ease;
+            margin-bottom: 20px;
+        }
+        .drag-area.active {
+            border-color: #007bff;
+            background-color: #e9f5ff;
+        }
+        .drag-area h4 {
+            color: #6c757d;
+            margin-bottom: 15px;
+        }
+        .drag-area p {
+            color: #adb5bd;
+        }
+        .drag-area .icon {
+            font-size: 50px;
+            color: #adb5bd;
+            margin-bottom: 15px;
+        }
+        .upload-btn {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            font-size: 1rem;
+        }
+        .upload-btn:hover {
+            background-color: #0069d9;
+        }
+        .info-box {
+            background-color: #e5f7ff;
+            border-left: 4px solid #007bff;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+        }
+        .info-box h5 {
+            color: #007bff;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container upload-container">
+        <div class="logo">
+            <h1>BotIA</h1>
+            <p class="text-muted">Sistema de Agendamiento de Citas Legales</p>
+        </div>
+        
+        <div class="info-box">
+            <h5><i class="fas fa-info-circle me-2"></i>Subir Documentos para tu Cita</h5>
+            <p>Los documentos que subas serán revisados por el abogado antes de tu cita.</p>
+            <p class="mb-0"><strong>Importante:</strong> Este enlace estará disponible durante 24 horas.</p>
+        </div>
+        
+        {% if error %}
+        <div class="alert alert-danger">
+            <i class="fas fa-exclamation-triangle me-2"></i>{{ error }}
+        </div>
+        {% endif %}
+        
+        {% if errors %}
+        <div class="alert alert-warning">
+            <i class="fas fa-exclamation-circle me-2"></i>Se encontraron errores:
+            <ul class="mb-0 mt-2">
+                {% for error in errors %}
+                <li>{{ error }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+        
+        <form method="post" enctype="multipart/form-data">
+            <div class="drag-area" id="dropArea">
+                <div class="icon"><i class="fas fa-cloud-upload-alt"></i></div>
+                <h4>Arrastra y suelta archivos aquí</h4>
+                <p>O <label for="file" class="text-primary" style="cursor: pointer;">selecciona archivos</label></p>
+                <input type="file" id="file" name="file" multiple style="display: none;">
+                <p class="text-muted mt-2">Máximo {{ max_files }} archivos (50MB por archivo)</p>
+            </div>
+            
+            <div id="previewContainer" class="preview-container d-none">
+                <h5 class="mb-3">Archivos seleccionados:</h5>
+                <div id="filePreviewList"></div>
+            </div>
+            
+            <div class="mb-3">
+                <label for="notas" class="form-label">Notas o comentarios sobre los documentos:</label>
+                <textarea class="form-control" id="notas" name="notas" rows="3" placeholder="Añade información relevante sobre estos documentos..."></textarea>
+            </div>
+            
+            <div class="d-grid gap-2">
+                <button type="submit" class="upload-btn" id="uploadBtn" disabled>
+                    <i class="fas fa-upload me-2"></i>Subir Documentos
+                </button>
+            </div>
+        </form>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const dropArea = document.getElementById('dropArea');
+            const fileInput = document.getElementById('file');
+            const previewContainer = document.getElementById('previewContainer');
+            const filePreviewList = document.getElementById('filePreviewList');
+            const uploadBtn = document.getElementById('uploadBtn');
+            const maxFiles = parseInt('{{ max_files }}');
+            
+            // Prevenir comportamiento por defecto
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                dropArea.addEventListener(eventName, preventDefaults, false);
+            });
+            
+            function preventDefaults(e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+            
+            // Resaltar drop area cuando el archivo está sobre ella
+            ['dragenter', 'dragover'].forEach(eventName => {
+                dropArea.addEventListener(eventName, highlight, false);
+            });
+            
+            ['dragleave', 'drop'].forEach(eventName => {
+                dropArea.addEventListener(eventName, unhighlight, false);
+            });
+            
+            function highlight() {
+                dropArea.classList.add('active');
+            }
+            
+            function unhighlight() {
+                dropArea.classList.remove('active');
+            }
+            
+            // Manejar archivos soltados
+            dropArea.addEventListener('drop', handleDrop, false);
+            
+            function handleDrop(e) {
+                const dt = e.dataTransfer;
+                const files = dt.files;
+                
+                if (files.length > maxFiles) {
+                    alert(`Solo se permiten ${maxFiles} archivos.`);
+                    return;
+                }
+                
+                handleFiles(files);
+            }
+            
+            // Manejar selección de archivos por clic
+            fileInput.addEventListener('change', function() {
+                if (this.files.length > maxFiles) {
+                    alert(`Solo se permiten ${maxFiles} archivos.`);
+                    this.value = null;
+                    return;
+                }
+                
+                handleFiles(this.files);
+            });
+            
+            // Procesar archivos seleccionados
+            function handleFiles(files) {
+                if (files.length > 0) {
+                    previewContainer.classList.remove('d-none');
+                    uploadBtn.disabled = false;
+                    
+                    filePreviewList.innerHTML = '';
+                    
+                    Array.from(files).forEach(file => {
+                        const filePreview = document.createElement('div');
+                        filePreview.classList.add('file-preview');
+                        
+                        // Determinar el icono según la extensión
+                        const extension = file.name.split('.').pop().toLowerCase();
+                        let iconClass = 'fa-file';
+                        
+                        if (['pdf'].includes(extension)) {
+                            iconClass = 'fa-file-pdf';
+                        } else if (['doc', 'docx'].includes(extension)) {
+                            iconClass = 'fa-file-word';
+                        } else if (['xls', 'xlsx', 'csv'].includes(extension)) {
+                            iconClass = 'fa-file-excel';
+                        } else if (['ppt', 'pptx'].includes(extension)) {
+                            iconClass = 'fa-file-powerpoint';
+                        } else if (['jpg', 'jpeg', 'png', 'gif', 'bmp'].includes(extension)) {
+                            iconClass = 'fa-file-image';
+                        } else if (['zip', 'rar', '7z', 'tar', 'gz'].includes(extension)) {
+                            iconClass = 'fa-file-archive';
+                        } else if (['txt', 'md'].includes(extension)) {
+                            iconClass = 'fa-file-alt';
+                        }
+                        
+                        // Formatear tamaño
+                        let fileSize = '';
+                        if (file.size < 1024) {
+                            fileSize = file.size + ' bytes';
+                        } else if (file.size < 1024 * 1024) {
+                            fileSize = (file.size / 1024).toFixed(2) + ' KB';
+                        } else {
+                            fileSize = (file.size / (1024 * 1024)).toFixed(2) + ' MB';
+                        }
+                        
+                        filePreview.innerHTML = `
+                            <i class="fas ${iconClass}"></i>
+                            <div class="file-info">
+                                <div class="file-name">${file.name}</div>
+                                <div class="file-size">${fileSize}</div>
+                            </div>
+                        `;
+                        
+                        filePreviewList.appendChild(filePreview);
+                    });
+                }
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,146 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Subir Documento | Panel de Administración{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Subir Documento</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        {% if entity_type == 'cliente' %}
+        <a href="{{ url_for('admin.documentos_cliente', cliente_id=entity_id) }}" class="btn btn-sm btn-outline-secondary">
+            <i class="fas fa-arrow-left"></i> Volver a documentos del cliente
+        </a>
+        {% elif entity_type == 'proyecto' %}
+        <a href="{{ url_for('admin.documentos_proyecto', proyecto_id=entity_id) }}" class="btn btn-sm btn-outline-secondary">
+            <i class="fas fa-arrow-left"></i> Volver a documentos del proyecto
+        </a>
+        {% elif entity_type == 'cita' %}
+        <a href="{{ url_for('admin.documentos_cita', cita_id=entity_id) }}" class="btn btn-sm btn-outline-secondary">
+            <i class="fas fa-arrow-left"></i> Volver a documentos de la cita
+        </a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <form method="post" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <label for="entity_name" class="form-label">{{ entity_type|capitalize }} asociado</label>
+                        <input type="text" class="form-control" id="entity_name" value="{{ entity_name }}" disabled>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="file" class="form-label">Seleccionar archivo *</label>
+                        <input type="file" class="form-control" id="file" name="file" required>
+                        <div id="file_preview" class="mt-2 d-none">
+                            <div class="card p-2">
+                                <div class="d-flex align-items-center">
+                                    <span class="me-2" id="file_icon"><i class="fas fa-file"></i></span>
+                                    <div>
+                                        <div id="file_name"></div>
+                                        <div id="file_size" class="text-muted small"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="notas" class="form-label">Notas sobre el documento</label>
+                        <textarea class="form-control" id="notas" name="notas" rows="3" placeholder="Añade información relevante sobre este documento..."></textarea>
+                    </div>
+                    
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-upload me-2"></i>Subir Documento
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card shadow-sm">
+            <div class="card-header bg-light">
+                <h5 class="card-title mb-0">Información</h5>
+            </div>
+            <div class="card-body">
+                <p>Selecciona un archivo para subirlo como documento asociado {% if entity_type == 'cliente' %}al cliente{% elif entity_type == 'proyecto' %}al proyecto{% elif entity_type == 'cita' %}a la cita{% endif %}.</p>
+                <p>Formatos recomendados:</p>
+                <ul>
+                    <li>Documentos: PDF, DOC, DOCX, XLS, XLSX</li>
+                    <li>Imágenes: JPG, PNG, GIF</li>
+                    <li>Otros: ZIP, RAR, TXT</li>
+                </ul>
+                <p class="text-muted">Tamaño máximo: 50MB</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const fileInput = document.getElementById('file');
+        const filePreview = document.getElementById('file_preview');
+        const fileName = document.getElementById('file_name');
+        const fileSize = document.getElementById('file_size');
+        const fileIcon = document.getElementById('file_icon');
+        
+        fileInput.addEventListener('change', function() {
+            if (this.files && this.files[0]) {
+                const file = this.files[0];
+                
+                // Mostrar nombre y tamaño
+                fileName.textContent = file.name;
+                
+                // Convertir bytes a unidades legibles
+                let size = file.size;
+                let sizeStr = '';
+                
+                if (size < 1024) {
+                    sizeStr = size + ' bytes';
+                } else if (size < 1024 * 1024) {
+                    sizeStr = (size / 1024).toFixed(2) + ' KB';
+                } else {
+                    sizeStr = (size / (1024 * 1024)).toFixed(2) + ' MB';
+                }
+                
+                fileSize.textContent = sizeStr;
+                
+                // Determinar el icono según la extensión
+                const extension = file.name.split('.').pop().toLowerCase();
+                let iconClass = 'fa-file';
+                
+                if (['pdf'].includes(extension)) {
+                    iconClass = 'fa-file-pdf';
+                } else if (['doc', 'docx'].includes(extension)) {
+                    iconClass = 'fa-file-word';
+                } else if (['xls', 'xlsx', 'csv'].includes(extension)) {
+                    iconClass = 'fa-file-excel';
+                } else if (['ppt', 'pptx'].includes(extension)) {
+                    iconClass = 'fa-file-powerpoint';
+                } else if (['jpg', 'jpeg', 'png', 'gif', 'bmp'].includes(extension)) {
+                    iconClass = 'fa-file-image';
+                } else if (['zip', 'rar', '7z', 'tar', 'gz'].includes(extension)) {
+                    iconClass = 'fa-file-archive';
+                } else if (['txt', 'md'].includes(extension)) {
+                    iconClass = 'fa-file-alt';
+                }
+                
+                fileIcon.innerHTML = `<i class="fas ${iconClass}"></i>`;
+                
+                // Mostrar la previsualización
+                filePreview.classList.remove('d-none');
+            } else {
+                filePreview.classList.add('d-none');
+            }
+        });
+    });
+</script>
+{% endblock %}

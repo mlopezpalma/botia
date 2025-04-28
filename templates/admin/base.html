@@ -201,6 +201,17 @@
                             </a>
                         </li>
                         {% endif %}
+
+                        <div class="nav-category">Documentos</div>
+                        
+                        {% if not session.admin_role or session.admin_role in ['admin', 'gestor', 'abogado'] %}
+                        <li class="nav-item">
+                            <a class="nav-link {% if 'documentos' in request.endpoint %}active{% endif %}" href="{{ url_for('admin.documentos') }}">
+                                <i class="fas fa-file me-2"></i>Documentos
+                            </a>
+                        </li>
+                        {% endif %}
+
                     </ul>
                 </div>
             </nav>

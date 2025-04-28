@@ -11,6 +11,7 @@ class DatabaseManager:
         self.db_file = db_file
         self.initialize_db()
         self.initialize_user_tables()
+        self.initialize_document_tables()
     
     def initialize_db(self):
         """Crea las tablas si no existen."""
@@ -85,6 +86,332 @@ class DatabaseManager:
         
         conn.commit()
         conn.close()
+
+
+
+    def initialize_document_tables(self):
+        """Crea las tablas para gestión de documentos si no existen."""
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+    
+        # Tabla de documentos
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS documentos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre TEXT NOT NULL,
+            tipo TEXT NOT NULL,
+            tamano INTEGER NOT NULL,
+            fecha_subida TEXT NOT NULL,
+            ruta_archivo TEXT NOT NULL,
+            hash_md5 TEXT,
+            notas TEXT
+        )
+        ''')
+    
+        # Tabla de relaciones documentos-cliente
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS documento_cliente (
+            documento_id INTEGER,
+            cliente_id INTEGER,
+            FOREIGN KEY (documento_id) REFERENCES documentos (id),
+            FOREIGN KEY (cliente_id) REFERENCES clientes (id),
+            PRIMARY KEY (documento_id, cliente_id)
+        )
+        ''')
+    
+        # Tabla de relaciones documentos-proyecto
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS documento_proyecto (
+            documento_id INTEGER,
+            proyecto_id INTEGER,
+            FOREIGN KEY (documento_id) REFERENCES documentos (id),
+            FOREIGN KEY (proyecto_id) REFERENCES proyectos (id),
+            PRIMARY KEY (documento_id, proyecto_id)
+        )
+        ''')
+    
+        # Tabla de relaciones documentos-cita
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS documento_cita (
+            documento_id INTEGER,
+            cita_id INTEGER,
+            FOREIGN KEY (documento_id) REFERENCES documentos (id),
+            FOREIGN KEY (cita_id) REFERENCES citas (id),
+            PRIMARY KEY (documento_id, cita_id)
+        )
+        ''')
+    
+        conn.commit()
+        conn.close()
+
+    # Métodos para gestión de documentos
+    def add_documento(self, nombre, tipo, tamano, ruta_archivo, hash_md5=None, notas=None):
+        """
+        Añade un nuevo documento a la base de datos.
+    
+        Args:
+            nombre: Nombre original del documento
+            tipo: Tipo MIME o extensión del documento
+            tamano: Tamaño en bytes
+            ruta_archivo: Ruta donde se almacena el archivo
+            hash_md5: Hash MD5 para verificación (opcional)
+            notas: Notas sobre el documento (opcional)
+        
+        Returns:
+            ID del documento creado
+        """
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+    
+        fecha_subida = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+        cursor.execute(
+            """INSERT INTO documentos 
+               (nombre, tipo, tamano, fecha_subida, ruta_archivo, hash_md5, notas) 
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (nombre, tipo, tamano, fecha_subida, ruta_archivo, hash_md5, notas)
+        )
+    
+        documento_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+    
+        return documento_id
+
+    def relacionar_documento_cliente(self, documento_id, cliente_id):
+        """Relaciona un documento con un cliente."""
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+    
+        cursor.execute(
+            "INSERT OR IGNORE INTO documento_cliente (documento_id, cliente_id) VALUES (?, ?)",
+            (documento_id, cliente_id)
+        )
+    
+        conn.commit()
+        conn.close()
+
+    def relacionar_documento_proyecto(self, documento_id, proyecto_id):
+        """Relaciona un documento con un proyecto."""
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+    
+        cursor.execute(
+            "INSERT OR IGNORE INTO documento_proyecto (documento_id, proyecto_id) VALUES (?, ?)",
+            (documento_id, proyecto_id)
+        )
+    
+        conn.commit()
+        conn.close()
+
+    def relacionar_documento_cita(self, documento_id, cita_id):
+        """Relaciona un documento con una cita."""
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+    
+        cursor.execute(
+            "INSERT OR IGNORE INTO documento_cita (documento_id, cita_id) VALUES (?, ?)",
+            (documento_id, cita_id)
+        )
+    
+        conn.commit()
+        conn.close()
+
+    def get_documentos_cliente(self, cliente_id):
+        """Obtiene todos los documentos asociados a un cliente."""
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+    
+        cursor.execute("""
+        SELECT d.* FROM documentos d
+        JOIN documento_cliente dc ON d.id = dc.documento_id
+        WHERE dc.cliente_id = ?
+        ORDER BY d.fecha_subida DESC
+        """, (cliente_id,))
+    
+        docs = cursor.fetchall()
+        documentos = []
+    
+        for doc in docs:
+            documentos.append({
+                'id': doc[0],
+                'nombre': doc[1],
+                'tipo': doc[2],
+                'tamano': doc[3],
+                'fecha_subida': doc[4],
+                'ruta_archivo': doc[5],
+                'hash_md5': doc[6],
+                'notas': doc[7]
+            })
+    
+        conn.close()
+        return documentos
+
+    def get_documentos_proyecto(self, proyecto_id):
+        """Obtiene todos los documentos asociados a un proyecto."""
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+    
+        cursor.execute("""
+        SELECT d.* FROM documentos d
+        JOIN documento_proyecto dp ON d.id = dp.documento_id
+        WHERE dp.proyecto_id = ?
+        ORDER BY d.fecha_subida DESC
+        """, (proyecto_id,))
+    
+        docs = cursor.fetchall()
+        documentos = []
+
+        for doc in docs:
+            documentos.append({
+                'id': doc[0],
+                'nombre': doc[1],
+                'tipo': doc[2],
+                'tamano': doc[3],
+                'fecha_subida': doc[4],
+                'ruta_archivo': doc[5],
+                'hash_md5': doc[6],
+                'notas': doc[7]
+            })
+    
+        conn.close()
+        return documentos
+
+    def get_documentos_cita(self, cita_id):
+        """Obtiene todos los documentos asociados a una cita."""
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+    
+        cursor.execute("""
+        SELECT d.* FROM documentos d
+        JOIN documento_cita dc ON d.id = dc.documento_id
+        WHERE dc.cita_id = ?
+        ORDER BY d.fecha_subida DESC
+        """, (cita_id,))
+
+        docs = cursor.fetchall()
+        documentos = []
+
+        for doc in docs:
+            documentos.append({
+                'id': doc[0],
+                'nombre': doc[1],
+                'tipo': doc[2],
+                'tamano': doc[3],
+                'fecha_subida': doc[4],
+                'ruta_archivo': doc[5],
+                'hash_md5': doc[6],
+                'notas': doc[7]
+            })
+    
+        conn.close()
+        return documentos
+
+    def get_documento(self, documento_id):
+        """Obtiene información detallada de un documento."""
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT * FROM documentos WHERE id = ?", (documento_id,))
+        doc = cursor.fetchone()
+
+        if not doc:
+            conn.close()
+            return None
+    
+        documento = {
+            'id': doc[0],
+            'nombre': doc[1],
+            'tipo': doc[2],
+            'tamano': doc[3],
+            'fecha_subida': doc[4],
+            'ruta_archivo': doc[5],
+            'hash_md5': doc[6],
+            'notas': doc[7],
+            'clientes': [],
+            'proyectos': [],
+            'citas': []
+        }
+    
+        # Obtener clientes relacionados
+        cursor.execute("""
+        SELECT c.id, c.nombre FROM clientes c
+        JOIN documento_cliente dc ON c.id = dc.cliente_id
+        WHERE dc.documento_id = ?
+        """, (documento_id,))
+    
+        clientes = cursor.fetchall()
+        for cliente in clientes:
+            documento['clientes'].append({
+                'id': cliente[0],
+                'nombre': cliente[1]
+            })
+    
+        # Obtener proyectos relacionados
+        cursor.execute("""
+        SELECT p.id, p.titulo FROM proyectos p
+        JOIN documento_proyecto dp ON p.id = dp.proyecto_id
+        WHERE dp.documento_id = ?
+        """, (documento_id,))
+    
+        proyectos = cursor.fetchall()
+        for proyecto in proyectos:
+            documento['proyectos'].append({
+                'id': proyecto[0],
+                'titulo': proyecto[1]
+            })
+    
+        # Obtener citas relacionadas
+        cursor.execute("""
+        SELECT c.id, c.fecha, c.hora, c.tipo FROM citas c
+        JOIN documento_cita dc ON c.id = dc.cita_id
+        WHERE dc.documento_id = ?
+        """, (documento_id,))
+    
+        citas = cursor.fetchall()
+        for cita in citas:
+            documento['citas'].append({
+                'id': cita[0],
+                'fecha': cita[1],
+                'hora': cita[2],
+                'tipo': cita[3]
+            })
+    
+        conn.close()
+        return documento
+
+    def delete_documento(self, documento_id):
+        """Elimina un documento y sus relaciones."""
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+    
+        # Primero obtenemos la ruta del archivo para eliminarlo del sistema de archivos
+        cursor.execute("SELECT ruta_archivo FROM documentos WHERE id = ?", (documento_id,))
+        ruta = cursor.fetchone()
+    
+        if ruta:
+            # Eliminar las relaciones
+            cursor.execute("DELETE FROM documento_cliente WHERE documento_id = ?", (documento_id,))
+            cursor.execute("DELETE FROM documento_proyecto WHERE documento_id = ?", (documento_id,))
+            cursor.execute("DELETE FROM documento_cita WHERE documento_id = ?", (documento_id,))
+        
+            # Eliminar el documento de la base de datos
+            cursor.execute("DELETE FROM documentos WHERE id = ?", (documento_id,))
+
+            conn.commit()
+        
+            # Eliminar el archivo físicamente
+            try:
+                import os
+                if os.path.exists(ruta[0]):
+                    os.remove(ruta[0])
+            except Exception as e:
+                print(f"Error al eliminar archivo: {str(e)}")
+    
+        conn.close()
+        return True
+
+
 
         # Tablas para gestión de usuarios
     def initialize_user_tables(self):

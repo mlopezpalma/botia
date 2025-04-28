@@ -1594,4 +1594,223 @@ def desconectar_google_calendar():
         return redirect(url_for('admin.configuracion'))
     except Exception as e:
         flash(f'Error al desconectar Google Calendar: {str(e)}', 'danger')
-        return redirect(url_for('admin.configuracion'))    
+        return redirect(url_for('admin.configuracion')) 
+
+# Rutas para gestión de documentos
+@admin_bp.route('/documentos')
+@login_required
+def documentos():
+    """Vista para listar todos los documentos."""
+    try:
+        # Implementar consulta para obtener todos los documentos
+        conn = sqlite3.connect(db.db_file)
+        conn.row_factory = sqlite3.Row  # Para acceder a las columnas por nombre
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+        SELECT d.*, 
+               GROUP_CONCAT(DISTINCT c.nombre) as clientes,
+               GROUP_CONCAT(DISTINCT p.titulo) as proyectos
+        FROM documentos d
+        LEFT JOIN documento_cliente dc ON d.id = dc.documento_id
+        LEFT JOIN clientes c ON dc.cliente_id = c.id
+        LEFT JOIN documento_proyecto dp ON d.id = dp.documento_id
+        LEFT JOIN proyectos p ON dp.proyecto_id = p.id
+        GROUP BY d.id
+        ORDER BY d.fecha_subida DESC
+        """)
+        
+        documentos_raw = cursor.fetchall()
+        conn.close()
+        
+        documentos = []
+        for doc in documentos_raw:
+            clientes = doc['clientes'].split(',') if doc['clientes'] else []
+            proyectos = doc['proyectos'].split(',') if doc['proyectos'] else []
+            
+            tamano_mb = round(doc['tamano'] / (1024 * 1024), 2) if doc['tamano'] else 0
+            
+            documentos.append({
+                'id': doc['id'],
+                'nombre': doc['nombre'],
+                'tipo': doc['tipo'],
+                'tamano': tamano_mb,
+                'fecha_subida': doc['fecha_subida'],
+                'clientes': clientes,
+                'proyectos': proyectos,
+                'ruta_archivo': doc['ruta_archivo']
+            })
+        
+        return render_template('admin/documentos.html', documentos=documentos)
+    except Exception as e:
+        flash(f'Error al cargar documentos: {str(e)}', 'danger')
+        return redirect(url_for('admin.dashboard'))
+
+@admin_bp.route('/documentos/cliente/<int:cliente_id>')
+@login_required
+def documentos_cliente(cliente_id):
+    """Vista para los documentos de un cliente específico."""
+    try:
+        cliente = db.get_cliente_by_id(cliente_id)
+        if not cliente:
+            flash('Cliente no encontrado', 'danger')
+            return redirect(url_for('admin.clientes'))
+        
+        documentos = db.get_documentos_cliente(cliente_id)
+        
+        return render_template('admin/documentos_cliente.html', 
+                             cliente=cliente, 
+                             documentos=documentos)
+    except Exception as e:
+        flash(f'Error al cargar documentos del cliente: {str(e)}', 'danger')
+        return redirect(url_for('admin.ver_cliente', cliente_id=cliente_id))
+
+@admin_bp.route('/documentos/proyecto/<int:proyecto_id>')
+@login_required
+def documentos_proyecto(proyecto_id):
+    """Vista para los documentos de un proyecto específico."""
+    try:
+        proyecto = db.get_proyecto(proyecto_id)
+        if not proyecto:
+            flash('Proyecto no encontrado', 'danger')
+            return redirect(url_for('admin.proyectos'))
+        
+        documentos = db.get_documentos_proyecto(proyecto_id)
+        
+        return render_template('admin/documentos_proyecto.html', 
+                             proyecto=proyecto, 
+                             documentos=documentos)
+    except Exception as e:
+        flash(f'Error al cargar documentos del proyecto: {str(e)}', 'danger')
+        return redirect(url_for('admin.ver_proyecto', proyecto_id=proyecto_id))
+
+@admin_bp.route('/documentos/cita/<int:cita_id>')
+@login_required
+def documentos_cita(cita_id):
+    """Vista para los documentos de una cita específica."""
+    try:
+        cita = db.get_cita(cita_id)
+        if not cita:
+            flash('Cita no encontrada', 'danger')
+            return redirect(url_for('admin.citas'))
+        
+        documentos = db.get_documentos_cita(cita_id)
+        
+        return render_template('admin/documentos_cita.html', 
+                             cita=cita, 
+                             documentos=documentos)
+    except Exception as e:
+        flash(f'Error al cargar documentos de la cita: {str(e)}', 'danger')
+        return redirect(url_for('admin.ver_cita', cita_id=cita_id))
+
+@admin_bp.route('/documentos/subir/<string:entity_type>/<int:entity_id>', methods=['GET', 'POST'])
+@login_required
+def subir_documento(entity_type, entity_id):
+    """Vista para subir un documento asociado a una entidad."""
+    try:
+        # Verificar que la entidad existe
+        entity_exists = False
+        entity_name = ""
+        
+        if entity_type == 'cliente':
+            entity = db.get_cliente_by_id(entity_id)
+            entity_exists = entity is not None
+            if entity_exists:
+                entity_name = entity['nombre']
+        elif entity_type == 'proyecto':
+            entity = db.get_proyecto(entity_id)
+            entity_exists = entity is not None
+            if entity_exists:
+                entity_name = entity['titulo']
+        elif entity_type == 'cita':
+            entity = db.get_cita(entity_id)
+            entity_exists = entity is not None
+            if entity_exists:
+                fecha = entity['fecha']
+                hora = entity['hora']
+                entity_name = f"Cita {fecha} {hora}"
+        
+        if not entity_exists:
+            flash(f'{entity_type.capitalize()} no encontrado', 'danger')
+            return redirect(url_for('admin.dashboard'))
+        
+        if request.method == 'POST':
+            # Verificar que se ha subido un archivo
+            if 'file' not in request.files:
+                flash('No se seleccionó ningún archivo', 'danger')
+                return redirect(request.url)
+            
+            file = request.files['file']
+            
+            # Verificar que tiene un nombre
+            if file.filename == '':
+                flash('No se seleccionó ningún archivo', 'danger')
+                return redirect(request.url)
+            
+            # Obtener notas
+            notas = request.form.get('notas', '')
+            
+            # Subir documento
+            from document_manager import DocumentManager
+            document_manager = DocumentManager(db_manager=db)
+            
+            doc_id = document_manager.upload_documento(file, entity_type, entity_id, notas)
+            
+            if doc_id:
+                flash('Documento subido correctamente', 'success')
+                
+                # Redireccionar según el tipo de entidad
+                if entity_type == 'cliente':
+                    return redirect(url_for('admin.documentos_cliente', cliente_id=entity_id))
+                elif entity_type == 'proyecto':
+                    return redirect(url_for('admin.documentos_proyecto', proyecto_id=entity_id))
+                elif entity_type == 'cita':
+                    return redirect(url_for('admin.documentos_cita', cita_id=entity_id))
+            else:
+                flash('Error al subir documento', 'danger')
+        
+        return render_template('admin/subir_documento.html', 
+                            entity_type=entity_type,
+                            entity_id=entity_id,
+                            entity_name=entity_name)
+    except Exception as e:
+        flash(f'Error al subir documento: {str(e)}', 'danger')
+        return redirect(url_for('admin.dashboard'))
+
+@admin_bp.route('/documentos/eliminar/<int:documento_id>', methods=['POST'])
+@login_required
+def eliminar_documento(documento_id):
+    """Elimina un documento."""
+    try:
+        # Obtener el documento para saber a dónde redireccionar después
+        documento = db.get_documento(documento_id)
+        
+        if not documento:
+            flash('Documento no encontrado', 'danger')
+            return redirect(url_for('admin.documentos'))
+        
+        # Determinar la redirección basada en las relaciones
+        redirect_url = url_for('admin.documentos')
+        
+        if documento['clientes']:
+            cliente_id = documento['clientes'][0]['id']
+            redirect_url = url_for('admin.documentos_cliente', cliente_id=cliente_id)
+        elif documento['proyectos']:
+            proyecto_id = documento['proyectos'][0]['id']
+            redirect_url = url_for('admin.documentos_proyecto', proyecto_id=proyecto_id)
+        elif documento['citas']:
+            cita_id = documento['citas'][0]['id']
+            redirect_url = url_for('admin.documentos_cita', cita_id=cita_id)
+        
+        # Eliminar el documento
+        result = db.delete_documento(documento_id)
+        
+        if result:
+            flash('Documento eliminado correctamente', 'success')
+        else:
+            flash('Error al eliminar documento', 'danger')
+        
+        return redirect(redirect_url)
+    except Exception as e:
+        flash(f'Error al eliminar documento: {str(e)}', 'danger')
+        return redirect(url_for('admin.documentos'))   
