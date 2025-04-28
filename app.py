@@ -247,15 +247,19 @@ def chat():
     try:
         # Verificar si es un mensaje de reseteo
         if mensaje == "reset_conversation":
+            # Reinicio preservando datos del usuario
+            reset_conversacion(user_id, app.user_states, preserve_user_data=True)
+            return jsonify({'respuesta': 'Conversación reiniciada.'})
+        elif mensaje == "reset_conversation_complete":
             # Asegurar un reinicio completo eliminando la entrada existente
             try:
                 if user_id in app.user_states:
                     del app.user_states[user_id]
             except Exception as e:
                 logger.error(f"Error al eliminar estado de usuario: {str(e)}")
-                
-            reset_conversacion(user_id, app.user_states)
-            return jsonify({'respuesta': 'Conversación reiniciada.'})
+        
+            reset_conversacion(user_id, app.user_states, preserve_user_data=False)
+            return jsonify({'respuesta': 'Conversación reiniciada completamente.'})
         
         # Verificar si el usuario existe, si no existe entonces inicializarlo
         if user_id not in app.user_states:

@@ -393,19 +393,18 @@
         // Limpiar los mensajes
         messagesArea.innerHTML = '';
         
-        // Reiniciar el estado en el servidor
+        // Reiniciar el estado en el servidor con borrado completo (preserve_user_data=false)
         fetch('/api/bot', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                mensaje: "reset_conversation",
+                mensaje: "reset_conversation_complete",
                 user_id: userId
             })
         });
     }
-
 
     // Función para generar el calendario (mejorada)
     function generateCalendar(date, tipo_reunion) {

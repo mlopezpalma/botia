@@ -23,49 +23,54 @@ logger = logging.getLogger(__name__)
 
 
 # Modificar la función reset_conversacion para incluir el nuevo estado
-def reset_conversacion(user_id, user_states):
+def reset_conversacion(user_id, user_states, preserve_user_data=True):
     """
     Reinicia el estado de la conversación para un usuario específico.
     
     Args:
         user_id: ID del usuario
         user_states: Diccionario de estados de usuario
+        preserve_user_data: Si se deben preservar los datos personales del usuario
     """
+    # Guardar datos del usuario si están disponibles y deseamos preservarlos
+    datos_usuario = None
+    if preserve_user_data and user_id in user_states and "datos" in user_states[user_id]:
+        datos_usuario = user_states[user_id]["datos"]
+
     # Eliminar completamente el estado anterior
     if user_id in user_states:
         del user_states[user_id]
 
     # Crear un nuevo estado limpio
-    
     user_states[user_id] = {
         "estado": "inicial",
         "tipo_reunion": None,
         "fecha": None,
         "hora": None,
         "tema_reunion": None,
-        "datos": {"nombre": None, "email": None, "telefono": None},
+        "datos": datos_usuario if datos_usuario else {"nombre": None, "email": None, "telefono": None},
         "consulta_caso": {
             "numero_expediente": None,
             "email_cliente": None,
             "caso_encontrado": False
         }
     }
-    print(f"DEBUG - Conversación reiniciada para usuario: {user_id}")
+    print(f"DEBUG - Conversación reiniciada para usuario: {user_id}, datos preservados: {preserve_user_data}")
 
 def generar_respuesta(mensaje, user_id, user_states):
     print(f"DEBUG - generar_respuesta recibió: '{mensaje}' de usuario: {user_id}")
 
-     # Preparar el mensaje en minúsculas para análisis
+    # Preparar el mensaje en minúsculas para análisis
     mensaje_lower = mensaje.lower().strip()
 
     # Estado del usuario
     if user_id not in user_states:
-        reset_conversacion(user_id, user_states)
+        reset_conversacion(user_id, user_states, preserve_user_data=True)
 
     estado_usuario = user_states[user_id]
     print(f"DEBUG - estado actual del usuario: {estado_usuario['estado']}")
 
-    # NUEVO: Manejo especial para cancelación de citas
+    # Manejo especial para cancelación de citas
     if "cancelar" in mensaje_lower and "cita" in mensaje_lower:
         if estado_usuario["estado"] in ["esperando_seleccion_cita_cancelar", "esperando_confirmacion_cancelacion", "esperando_datos_cancelacion"]:
             # Ya estamos en proceso de cancelación, procesar selección o confirmación
@@ -78,10 +83,7 @@ def generar_respuesta(mensaje, user_id, user_states):
     if estado_usuario["estado"] in ["esperando_seleccion_cita_cancelar", "esperando_confirmacion_cancelacion", "esperando_datos_cancelacion"]:
         return procesar_seleccion_cancelacion(mensaje, user_id, user_states)
     
-    
-    
-    # NUEVO: Detectar despedida o finalización
-    
+    # Detectar despedida o finalización
     palabras_despedida = ["no gracias", "adiós", "adios", "hasta luego", "terminar", 
                          "finalizar", "cerrar", "no quiero", "no deseo", "eso es todo",
                          "nada más", "no necesito", "gracias", "ya está", "ya terminé"]
@@ -93,28 +95,13 @@ def generar_respuesta(mensaje, user_id, user_states):
             if mensaje_lower == "no" or "cambiar" in mensaje_lower:
                 pass  # Continuar con el flujo normal
             else:
-                # Es una despedida
-                reset_conversacion(user_id, user_states)
+                # Es una despedida - borrado completo porque el usuario se está despidiendo
+                reset_conversacion(user_id, user_states, preserve_user_data=False)
                 return "Gracias por usar nuestro servicio de asistencia para citas legales. ¡Hasta pronto!"
         else:
-            # En cualquier otro estado, es una despedida
-            reset_conversacion(user_id, user_states)
+            # En cualquier otro estado, es una despedida - borrado completo
+            reset_conversacion(user_id, user_states, preserve_user_data=False) 
             return "Gracias por usar nuestro servicio de asistencia para citas legales. ¡Hasta pronto!"
-    
-    # NUEVO: Manejo especial para cancelación de citas
-    if "cancelar" in mensaje_lower and "cita" in mensaje_lower:
-        if estado_usuario["estado"] in ["esperando_seleccion_cita_cancelar", "esperando_confirmacion_cancelacion", "esperando_datos_cancelacion"]:
-            # Ya estamos en proceso de cancelación, procesar selección o confirmación
-            return procesar_seleccion_cancelacion(mensaje, user_id, user_states)
-        else:
-            # Iniciar proceso de cancelación
-            return cancelar_cita_cliente(user_id, user_states)
-    
-    # Continuar con estados de cancelación
-    if estado_usuario["estado"] in ["esperando_seleccion_cita_cancelar", "esperando_confirmacion_cancelacion", "esperando_datos_cancelacion"]:
-        return procesar_seleccion_cancelacion(mensaje, user_id, user_states)
-    
-    # Procesamiento directo para respuestas simples según el estado
     
     # Buscar datos personales en cualquier mensaje
     datos_identificados = identificar_datos_personales(mensaje)
@@ -155,24 +142,48 @@ def generar_respuesta(mensaje, user_id, user_states):
     if estado_usuario["estado"] == "inicial":
         intencion = identificar_intencion(mensaje)
         
-        if intencion == "saludo":
-            estado_usuario["estado"] = "esperando_inicio"
-            return ("¡Hola! Soy el asistente de citas legales. Puedo ayudarte a agendar una consulta con nuestros abogados o consultar el estado de tu caso.\n" + 
-                    "¿Qué te gustaría hacer? [MENU:Agendar una cita|Consultar estado de mi caso|Cancelar cita]")
-        
-        elif intencion == "agendar":
-            estado_usuario["estado"] = "esperando_tipo_reunion"
-            return MENSAJES_MENU["tipo_reunion"]
+        # Verificar si ya tenemos datos del usuario para personalizar el saludo
+        if estado_usuario["datos"]["nombre"]:
+            nombre_cliente = estado_usuario["datos"]["nombre"].split()[0]  # Primer nombre
             
-        elif intencion == "consultar_estado":
-            estado_usuario["estado"] = "esperando_opcion_consulta"
-            return MENSAJES_MENU["consulta_estado"]
-        
+            if intencion == "saludo":
+                estado_usuario["estado"] = "esperando_inicio"
+                return (f"¡Hola de nuevo, {nombre_cliente}! Soy el asistente de citas legales. Puedo ayudarte a agendar una consulta con nuestros abogados o consultar el estado de tu caso.\n" + 
+                        "¿Qué te gustaría hacer? [MENU:Agendar una cita|Consultar estado de mi caso|Cancelar cita]")
+            
+            elif intencion == "agendar":
+                estado_usuario["estado"] = "esperando_tipo_reunion"
+                return MENSAJES_MENU["tipo_reunion"]
+                
+            elif intencion == "consultar_estado":
+                estado_usuario["estado"] = "esperando_opcion_consulta"
+                return MENSAJES_MENU["consulta_estado"]
+            
+            else:
+                # Si no se identifica intención específica, ofrecer opciones con saludo personalizado
+                estado_usuario["estado"] = "esperando_inicio"
+                return (f"Bienvenido de nuevo, {nombre_cliente}. Puedo ayudarte a agendar una consulta o verificar el estado de tu caso.\n" + 
+                       "¿Qué te gustaría hacer? [MENU:Agendar una cita|Consultar estado de mi caso|Cancelar cita]")
         else:
-            # Si no se identifica intención específica, ofrecer opciones
-            estado_usuario["estado"] = "esperando_inicio"
-            return ("Bienvenido al asistente de citas legales. Puedo ayudarte a agendar una consulta o verificar el estado de tu caso.\n" + 
-                   "¿Qué te gustaría hacer? [MENU:Agendar una cita|Consultar estado de mi caso|Cancelar cita]")
+            # Comportamiento original para usuarios sin datos previos
+            if intencion == "saludo":
+                estado_usuario["estado"] = "esperando_inicio"
+                return ("¡Hola! Soy el asistente de citas legales. Puedo ayudarte a agendar una consulta con nuestros abogados o consultar el estado de tu caso.\n" + 
+                        "¿Qué te gustaría hacer? [MENU:Agendar una cita|Consultar estado de mi caso|Cancelar cita]")
+            
+            elif intencion == "agendar":
+                estado_usuario["estado"] = "esperando_tipo_reunion"
+                return MENSAJES_MENU["tipo_reunion"]
+                
+            elif intencion == "consultar_estado":
+                estado_usuario["estado"] = "esperando_opcion_consulta"
+                return MENSAJES_MENU["consulta_estado"]
+            
+            else:
+                # Si no se identifica intención específica, ofrecer opciones
+                estado_usuario["estado"] = "esperando_inicio"
+                return ("Bienvenido al asistente de citas legales. Puedo ayudarte a agendar una consulta o verificar el estado de tu caso.\n" + 
+                       "¿Qué te gustaría hacer? [MENU:Agendar una cita|Consultar estado de mi caso|Cancelar cita]")
     
     elif estado_usuario["estado"] == "esperando_inicio":
         # Si el usuario selecciona "Agendar una cita"
@@ -206,11 +217,6 @@ def generar_respuesta(mensaje, user_id, user_states):
             estado_usuario["tipo_reunion"] = tipo_reunion
             estado_usuario["estado"] = "esperando_tema_reunion"
             return "¿Cuál es el motivo o tema de la consulta legal?"
-            
-        # Verificar si quiere consultar estado del caso
-        if "estado" in mensaje_lower or "consultar" in mensaje_lower or "caso" in mensaje_lower or "expediente" in mensaje_lower:
-            estado_usuario["estado"] = "esperando_opcion_consulta"
-            return MENSAJES_MENU["consulta_estado"]   
             
         # Si no se reconoce la intención, preguntar de nuevo
         return "Por favor, indica qué deseas hacer: agendar una cita (presencial, videoconferencia o telefónica) o consultar el estado de un caso."
@@ -386,7 +392,6 @@ def generar_respuesta(mensaje, user_id, user_states):
                     f"- Email: {estado_usuario['datos']['email']}\n"
                     f"- Teléfono: {estado_usuario['datos']['telefono']}\n\n" +
                     MENSAJES_MENU["confirmacion"])
-
     
     elif estado_usuario["estado"] == "esperando_confirmacion":
         intencion = identificar_intencion(mensaje)
@@ -423,16 +428,50 @@ def generar_respuesta(mensaje, user_id, user_states):
             
         else:
             return "No he entendido qué deseas cambiar. Por favor, selecciona una de las opciones: Fecha y hora, Tipo de reunión, Tema, o Mis datos personales."
+    
     elif estado_usuario["estado"] == "esperando_opcion_consulta":
         # Determinar si quiere buscar por número o por email
         if "numero" in mensaje_lower or "expediente" in mensaje_lower or mensaje_lower == "mi número de expediente":
             estado_usuario["estado"] = "esperando_numero_expediente"
             return "Por favor, indícame el número de expediente de tu caso (ej: C2023-001):"
-            
+        
         elif "email" in mensaje_lower or "correo" in mensaje_lower or mensaje_lower == "mi email para buscar mis casos":
-            estado_usuario["estado"] = "esperando_email_cliente"
-            return "Por favor, indícame tu dirección de email para buscar tus casos:"
+            # MODIFICACIÓN: Verificar primero si ya tenemos el email del usuario
+            if estado_usuario["datos"]["email"]:
+                # Ya tenemos el email, usarlo directamente
+                email = estado_usuario["datos"]["email"]
             
+            # Comprobar si el email existe en la base de datos de casos
+                email_existe = False
+                for caso in casos_db.values():
+                    if caso["cliente_email"].lower() == email.lower():
+                        email_existe = True
+                        break
+            
+                if email_existe:
+                    # Almacenar el email para verificación posterior
+                    estado_usuario["consulta_caso"]["email_cliente"] = email
+
+                    # Generar un código de verificación
+                    import random
+                    codigo_verificacion = ''.join(random.choices('0123456789', k=6))
+                
+                    # Almacenar el código para verificación posterior
+                    estado_usuario["consulta_caso"]["codigo_verificacion"] = codigo_verificacion
+                    estado_usuario["estado"] = "esperando_codigo_verificacion"
+                
+                    # Para fines de prueba, mostramos el código en el mensaje
+                    return (f"Ya tengo tu email ({email}). Por seguridad, hemos enviado un código de verificación de 6 dígitos. " +
+                           f"Por favor, introduce ese código para acceder a la información de tus casos.\n\n" +
+                           f"(SOLO PARA PRUEBAS: Tu código es {codigo_verificacion})")
+                else:
+                    estado_usuario["estado"] = "esperando_inicio"
+                    return f"No hemos encontrado casos asociados a tu email ({email}). Si crees que es un error, por favor contacta directamente con nuestras oficinas."
+            else:
+                # No tenemos el email, pedirlo
+                estado_usuario["estado"] = "esperando_email_cliente"
+                return "Por favor, indícame tu dirección de email para buscar tus casos:"
+        
         else:
             return "No he entendido tu elección. " + MENSAJES_MENU["consulta_estado"]
             
@@ -448,12 +487,25 @@ def generar_respuesta(mensaje, user_id, user_states):
                 break
         
         if email_existe:
+            # Almacenar el email para verificación posterior y para sincronizar datos de usuario
+            estado_usuario["consulta_caso"]["email_cliente"] = email
+            
+            # Si tenemos email del cliente pero no nombre ni teléfono, intentar buscar en base de datos
+            if not estado_usuario["datos"]["email"]:
+                estado_usuario["datos"]["email"] = email
+                # Buscar cliente para obtener más datos
+                cliente = _buscar_cliente_por_email(email)
+                if cliente:
+                    if not estado_usuario["datos"]["nombre"] and cliente.get("nombre"):
+                        estado_usuario["datos"]["nombre"] = cliente["nombre"]
+                    if not estado_usuario["datos"]["telefono"] and cliente.get("telefono"):
+                        estado_usuario["datos"]["telefono"] = cliente["telefono"]
+            
             # Generar un código de verificación
             import random
             codigo_verificacion = ''.join(random.choices('0123456789', k=6))
             
-            # Almacenar el código y el email para verificación posterior
-            estado_usuario["consulta_caso"]["email_cliente"] = email
+            # Almacenar el código para verificación posterior
             estado_usuario["consulta_caso"]["codigo_verificacion"] = codigo_verificacion
             estado_usuario["estado"] = "esperando_codigo_verificacion"
             
@@ -650,13 +702,14 @@ def _confirmar_cita(estado_usuario, user_id, user_states):
     fecha_formateada = datetime.datetime.strptime(estado_usuario["fecha"], "%Y-%m-%d").strftime("%d/%m/%Y")
     duracion = TIPOS_REUNION[estado_usuario["tipo_reunion"]]["duracion_cliente"]
     
-    # Reiniciar estado
-    reset_conversacion(user_id, user_states)
+    # Reiniciar estado pero preservar datos del usuario
+    reset_conversacion(user_id, user_states, preserve_user_data=True)
     
     return (f"¡Cita confirmada con éxito! Se ha agendado una consulta legal {estado_usuario['tipo_reunion']} para el {fecha_formateada} a las {estado_usuario['hora']} ({duracion} minutos).\n\n"
             f"Tema de la consulta: {estado_usuario['tema_reunion']}\n\n"
             f"Hemos enviado un correo de confirmación a {estado_usuario['datos']['email']} con todos los detalles.\n\n"
             f"Gracias por usar nuestro servicio. ¿Hay algo más en lo que pueda ayudarte?")
+
 
 
 def _buscar_cliente_por_email(email):
