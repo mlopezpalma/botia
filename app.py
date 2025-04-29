@@ -489,7 +489,7 @@ def download_documento(documento_id):
         return f"Error al descargar documento: {str(e)}", 500
 
 # Crear una tabla en SQLite para manejar tokens de carga de documentos
-@app.before_first_request
+#@app.before_first_request
 def create_upload_tokens_table():
     conn = sqlite3.connect(db_manager.db_file)
     cursor = conn.cursor()
