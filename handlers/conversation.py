@@ -15,6 +15,7 @@ from handlers.email_service import enviar_correo_confirmacion, enviar_sms_confir
 # Añadir importación de casos_db y ESTADOS_CASO al inicio del archivo
 from config import HORARIOS_POR_TIPO, TIPOS_REUNION, INTENCIONES, MENSAJES_MENU, citas_db, clientes_db, casos_db, ESTADOS_CASO
 
+from flask import url_for
 
 # Configurar logging
 import logging
@@ -65,19 +66,33 @@ def reset_conversacion(user_id, user_states, preserve_user_data=True):
 def _solicitar_documentos(estado_usuario):
     """Solicita al usuario documentos para la cita."""
     estado_usuario["documentos_pendientes"] = True
+
+    # Importar el gestor de tokens
+    import token_manager
     
-    # Generar un token único para identificar la sesión de carga
-    import hashlib
-    import time
-    import random
+    # Generar token
+    cita_id = estado_usuario.get('cita_id_temp')
+    if not cita_id:
+        return "Error al generar token para documentos. Por favor, contacta con soporte."
     
-    token_base = f"{estado_usuario.get('cita_id_temp', '')}-{time.time()}-{random.randint(1000, 9999)}"
-    token = hashlib.md5(token_base.encode()).hexdigest()
-    
+    token = token_manager.generate_token(cita_id)
     estado_usuario["doc_upload_token"] = token
+   
+    
+    # Intentar obtener la función get_base_url de app
+    try:
+        from app import get_base_url
+        base_url = get_base_url()
+    except (ImportError, AttributeError):
+        # Si falla, usar valor predeterminado
+        base_url = "http://127.0.0.1:5000"
+
+    # Usar URL absoluta para asegurar que funcione desde cualquier contexto
+    #base_url = "http://127.0.0.1:5000"  # Para desarrollo local
+    # En producción sería algo como "https://tudominio.com"
     
     # Generar el mensaje de solicitud de documentos
-    mensaje = """
+    mensaje = f"""
 ¿Deseas adjuntar algún documento para esta cita? Esto puede ser útil para que el abogado pueda revisar previamente información relevante.
 
 Puedes subir documentos como:
@@ -87,11 +102,10 @@ Puedes subir documentos como:
 - Identificaciones
 - Cualquier otro documento relevante para tu consulta
 
-Si deseas adjuntar algún documento, puedes hacerlo ahora o después de la cita usando el panel de cliente.
+Si deseas adjuntar algún documento, puedes hacerlo ahora usando este enlace: {base_url}/documentos/subir/{token}
 [MENU:Sí, quiero adjuntar documentos|No, continuaré sin documentos]
 """
     return mensaje
-
 
 
 
@@ -601,8 +615,26 @@ def generar_respuesta(mensaje, user_id, user_states):
             # Generar enlace de carga temporal
             upload_token = estado_usuario["doc_upload_token"]
             cita_id = estado_usuario["cita_id_temp"]
+
+            # Importar token_manager y guardar el token
+            import token_manager
+            from db_manager import DatabaseManager
         
-            enlace_carga = f"/documentos/subir/{upload_token}"
+            # Obtener el gestor de base de datos para pasar su db_file
+            db_manager = DatabaseManager()
+            token_manager.store_token(db_manager.db_file, upload_token, cita_id)
+
+            # Intentar obtener la función get_base_url de app
+            try:
+                from app import get_base_url
+                base_url = get_base_url()
+            except (ImportError, AttributeError):
+                # Si falla, usar valor predeterminado
+                base_url = "http://127.0.0.1:5000"
+
+            # producción sería algo como "https://tudominio.com"
+        
+            enlace_carga = f"{base_url}/documentos/subir/{upload_token}"
         
             # Reiniciar estado conservando los datos del usuario
             reset_conversacion(user_id, user_states, preserve_user_data=True)

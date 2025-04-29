@@ -147,7 +147,7 @@ def obtener_horarios_disponibles(fecha, tipo_reunion):
                         # Si no se puede determinar el tipo, asumir 30 minutos
                         duracion_evento = 30
                 
-                logger.debug(f"Evento de BD: {start_time}, duración: {duracion_evento} min, tipo: {tipo_evento if tipo_evento else 'desconocido'}")
+                logger.debug(f"Evento de BD: {start_time}, duración: {duracion_evento} min")
                 
                 # Para cada horario disponible, verificar solapamiento con este evento
                 for hora_str in horarios_completos:

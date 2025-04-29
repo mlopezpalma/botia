@@ -6,6 +6,21 @@ from db_manager import DatabaseManager
 from datetime import timedelta
 from document_manager import DocumentManager
 from flask import send_file
+import sqlite3
+
+def get_base_url():
+    """Obtiene la URL base del sitio basada en configuración o entorno"""
+    # Primero intentar obtener de variable de entorno
+    base_url = os.environ.get('BASE_URL')
+    if base_url:
+        return base_url
+    
+    # Si no hay variable de entorno, usar valores predeterminados
+    host = os.environ.get('SERVER_HOST', '127.0.0.1')
+    port = os.environ.get('SERVER_PORT', '5000')
+    protocol = 'https' if os.environ.get('USE_HTTPS', 'false').lower() == 'true' else 'http'
+    
+    return f"{protocol}://{host}:{port}"
 
 # Configurar logging
 logging.basicConfig(
@@ -32,6 +47,9 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'desarrollo_secreto_temporal')
 app.permanent_session_lifetime = timedelta(hours=12)
 
+# Exportar función para uso en otros módulos
+app.get_base_url = get_base_url
+
 # Inicializar estado de usuarios
 app.user_states = {}
 
@@ -55,10 +73,31 @@ def initialize_database():
         db_manager.import_from_memory(clientes_db, citas_db, casos_db)
         logger.info("Base de datos inicializada correctamente.")
     
-    
-
+    # Crear tabla de tokens si no existe
+    try:
+        import token_manager
+        
+        # Crear tabla de tokens
+        conn = sqlite3.connect(db_manager.db_file)
+        cursor = conn.cursor()
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS upload_tokens (
+            token TEXT PRIMARY KEY,
+            cita_id TEXT NOT NULL,
+            fecha_creacion TEXT NOT NULL,
+            fecha_expiracion TEXT NOT NULL,
+            usado INTEGER DEFAULT 0
+        )
+        ''')
+        conn.commit()
+        conn.close()
+        
+        logger.info("Tabla de tokens inicializada correctamente")
+    except Exception as e:
+        logger.error(f"Error al inicializar tabla de tokens: {str(e)}")
 
     # Inicializar gestor de documentos
+    
     upload_dir = os.environ.get('UPLOAD_DIR', 'uploads')
     document_manager = DocumentManager(upload_dir=upload_dir, db_manager=db_manager)
 
@@ -589,19 +628,34 @@ def validate_upload_token(token):
 @app.route('/documentos/subir/<string:token>', methods=['GET', 'POST'])
 def upload_document_by_token(token):
     """Permite subir documentos utilizando un token temporal."""
+    # Importar token_manager
+    import token_manager
+
+    logger.info(f"Acceso a ruta de subir documentos con token: {token}")
+    
     if request.method == 'POST':
         # Validar token
-        cita_id = validate_upload_token(token)
+        cita_id = token_manager.validate_token(db_manager.db_file, token)
         
         if not cita_id:
-            return render_template('upload_error.html', error="El enlace ha expirado o no es válido.")
+            logger.warning(f"Token inválido: {token}")
+            return render_template('admin/error_subir_documento.html', error="El enlace ha expirado o no es válido.")
         
+        logger.info(f"Token validado: {token}, cita: {cita_id}")
+
         # Convertir el cita_id de formato string "cita_XXXX" a entero
-        numeric_id = int(cita_id.split('_')[1]) if cita_id.startswith('cita_') else int(cita_id)
+        try:
+            if cita_id.startswith('cita_'):
+                numeric_id = int(cita_id.split('_')[1])
+            else:
+                numeric_id = int(cita_id)
+        except (ValueError, AttributeError):
+            logger.error(f"Error al convertir cita_id: {cita_id}")
+            return render_template('admin/error_subir_documento.html', error="Identificador de cita inválido.")
         
         # Verificar que se ha subido un archivo
         if 'file' not in request.files:
-            return render_template('upload_document.html', 
+            return render_template('admin/subir_documento_botia.html', 
                                  token=token, 
                                  error="No se seleccionó ningún archivo",
                                  max_files=5)
@@ -609,14 +663,14 @@ def upload_document_by_token(token):
         files = request.files.getlist('file')
         
         if not files or files[0].filename == '':
-            return render_template('upload_document.html', 
+            return render_template('admin/subir_documento_botia.html', 
                                  token=token, 
                                  error="No se seleccionó ningún archivo",
                                  max_files=5)
         
         # Verificar número máximo de archivos
         if len(files) > 5:
-            return render_template('upload_document.html', 
+            return render_template('admin/subir_documento_botia.html', 
                                  token=token, 
                                  error="Máximo 5 archivos permitidos",
                                  max_files=5)
@@ -643,17 +697,19 @@ def upload_document_by_token(token):
                     errors.append(f"Error al subir el archivo {file.filename}")
             except Exception as e:
                 errors.append(f"Error: {str(e)}")
+                logger.error(f"Excepción al subir documento: {str(e)}")
         
         if uploaded_files:
-            return render_template('upload_success.html', 
+            return render_template('admin/documento_subido_botia.html', 
                                  files=uploaded_files, 
                                  errors=errors)
         else:
-            return render_template('upload_document.html', 
+            return render_template('admin/subir_documento_botia.html', 
                                  token=token, 
                                  error="Error al subir los archivos", 
                                  errors=errors,
                                  max_files=5)
     
     # GET: Mostrar formulario de carga
-    return render_template('upload_document.html', token=token, max_files=5)
+    logger.info(f"Mostrando formulario de subida para token: {token}")
+    return render_template('admin/subir_documento_botia.html', token=token, max_files=5)
