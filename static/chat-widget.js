@@ -168,6 +168,15 @@
         messagesArea.scrollTop = messagesArea.scrollHeight;
     }
     
+    // Función para convertir URLs en texto a enlaces clicables
+    function linkify(text) {
+        var urlRegex = /(https?:\/\/[^\s]+)/g;
+        
+        return text.replace(urlRegex, function(url) {
+            return '<a href="' + url + '" target="_blank" style="color: #1890ff; text-decoration: underline;">' + url + '</a>';
+        });
+    }
+    
     function addBotMessage(text) {
         var messageDiv = document.createElement('div');
         messageDiv.style.textAlign = 'left';
@@ -193,7 +202,8 @@
             var menuText = text.replace(menuMatch[0], '');
             var options = menuMatch[1].split('|');
             
-            messageBubble.textContent = menuText;
+            // Convertir URLs en enlaces antes de asignar al contenido
+            messageBubble.innerHTML = linkify(menuText);
             messageDiv.appendChild(messageBubble);
             
             // Crear botones para cada opción
@@ -223,7 +233,8 @@
             
             messageDiv.appendChild(menuContainer);
         } else {
-            messageBubble.textContent = text;
+            // Convertir URLs en enlaces antes de asignar al contenido
+            messageBubble.innerHTML = linkify(text);
             messageDiv.appendChild(messageBubble);
         }
         
@@ -567,6 +578,4 @@
             showCalendarView();
         });
     }
-    
-
 })();

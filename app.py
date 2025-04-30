@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_from_directory, session ,  render_template
+from flask import Flask, request, jsonify, send_from_directory, session, render_template
 import os
 import logging
 from handlers.conversation import generar_respuesta, reset_conversacion
@@ -7,6 +7,7 @@ from datetime import timedelta
 from document_manager import DocumentManager
 from flask import send_file
 import sqlite3
+import token_manager
 
 def get_base_url():
     """Obtiene la URL base del sitio basada en configuración o entorno"""
@@ -56,8 +57,26 @@ app.user_states = {}
 # Inicializar gestor de base de datos
 db_manager = DatabaseManager()
 
+# Inicializar gestor de documentos
+upload_dir = os.environ.get('UPLOAD_DIR', 'uploads')
+document_manager = DocumentManager(upload_dir=upload_dir, db_manager=db_manager)
+
 # Variable para controlar la inicialización de la base de datos
 database_initialized = False
+
+# Función para validar tokens de carga
+def validate_upload_token(token, mark_as_used=False):
+    """
+    Valida un token de carga y opcionalmente lo marca como usado.
+    
+    Args:
+        token: Token a validar
+        mark_as_used: Si se debe marcar el token como usado (default: False)
+        
+    Returns:
+        ID de la cita asociada o None si el token es inválido
+    """
+    return token_manager.validate_token(db_manager.db_file, token, mark_as_used=mark_as_used)
 
 def initialize_database():
     """Inicializa la base de datos con datos existentes si está vacía."""
@@ -75,33 +94,13 @@ def initialize_database():
     
     # Crear tabla de tokens si no existe
     try:
-        import token_manager
-        
         # Crear tabla de tokens
-        conn = sqlite3.connect(db_manager.db_file)
-        cursor = conn.cursor()
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS upload_tokens (
-            token TEXT PRIMARY KEY,
-            cita_id TEXT NOT NULL,
-            fecha_creacion TEXT NOT NULL,
-            fecha_expiracion TEXT NOT NULL,
-            usado INTEGER DEFAULT 0
-        )
-        ''')
-        conn.commit()
-        conn.close()
-        
+        token_manager.create_upload_tokens_table(db_manager.db_file)
         logger.info("Tabla de tokens inicializada correctamente")
     except Exception as e:
         logger.error(f"Error al inicializar tabla de tokens: {str(e)}")
 
-    # Inicializar gestor de documentos
-
-    upload_dir = os.environ.get('UPLOAD_DIR', 'uploads')
-    document_manager = DocumentManager(upload_dir=upload_dir, db_manager=db_manager)
-
-     # Asegurar que existen los directorios de documentos
+    # Asegurar que existen los directorios de documentos
     try:
         document_manager.create_directories()
     except Exception as e:
@@ -365,9 +364,6 @@ def chat():
             return jsonify({'respuesta': 'Gracias por usar nuestro servicio de asistencia para citas legales. ¡Hasta pronto!'})
         
         # Procesar la respuesta normalmente
-        #respuesta = generar_respuesta(mensaje, user_id, app.user_states)
-        
-
         # Capturar el estado antes de procesar la respuesta
         estado_usuario_antes = app.user_states.get(user_id, {}).copy()
 
@@ -569,8 +565,8 @@ def upload_document_by_token(token):
     logger.info(f"Acceso a ruta de subir documentos con token: {token}")
     
     if request.method == 'POST':
-        # Validar token
-        cita_id = validate_upload_token(token)
+        # Validar token y marcarlo como usado si la subida es exitosa
+        cita_id = token_manager.check_token(db_manager.db_file, token)
         
         if not cita_id:
             logger.warning(f"Token inválido: {token}")
@@ -613,9 +609,6 @@ def upload_document_by_token(token):
         # Obtener notas (opcional)
         notas = request.form.get('notas', None)
         
-        # Inicializar gestor de documentos
-        document_manager = DocumentManager(upload_dir='uploads', db_manager=db_manager)
-        
         # Procesar cada archivo
         uploaded_files = []
         errors = []
@@ -634,6 +627,8 @@ def upload_document_by_token(token):
                 logger.error(f"Excepción al subir documento: {str(e)}")
         
         if uploaded_files:
+            # Marcar el token como usado solo si la subida tuvo éxito
+            token_manager.mark_token_used(db_manager.db_file, token)
             return render_template('admin/documento_subido_botia.html', 
                                   files=uploaded_files, 
                                   errors=errors)
@@ -645,13 +640,15 @@ def upload_document_by_token(token):
                                   max_files=5)
     
     # GET: Mostrar formulario de carga
+    # Solo verificar validez del token sin marcarlo como usado
+    cita_id = token_manager.check_token(db_manager.db_file, token)
+    
+    if not cita_id:
+        logger.warning(f"Token inválido o expirado: {token}")
+        return render_template('admin/error_subir_documento.html', error="El enlace ha expirado o no es válido.")
+    
     logger.info(f"Mostrando formulario de subida para token: {token}")
     return render_template('admin/subir_documento_botia.html', token=token, max_files=5)
-
-
-
-
-
 
 
 # Importar la integración de WhatsApp
@@ -664,91 +661,3 @@ if __name__ == '__main__':
     # Inicializar la base de datos antes de iniciar la aplicación
     initialize_database()
     app.run(debug=True)
-
-
-# Crear una tabla en SQLite para manejar tokens de carga de documentos
-#@app.before_first_request
-def create_upload_tokens_table():
-    conn = sqlite3.connect(db_manager.db_file)
-    cursor = conn.cursor()
-    
-    # Tabla para tokens de carga temporales
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS upload_tokens (
-        token TEXT PRIMARY KEY,
-        cita_id TEXT NOT NULL,
-        fecha_creacion TEXT NOT NULL,
-        fecha_expiracion TEXT NOT NULL,
-        usado INTEGER DEFAULT 0
-    )
-    ''')
-    
-    conn.commit()
-    conn.close()
-
-# Función para crear tokens de carga
-def create_upload_token(cita_id):
-    """Crea un token de carga temporal para una cita."""
-    import hashlib
-    import time
-    import random
-    import datetime
-    
-    # Generar token
-    token_base = f"{cita_id}-{time.time()}-{random.randint(1000, 9999)}"
-    token = hashlib.md5(token_base.encode()).hexdigest()
-    
-    # Fechas de creación y expiración
-    now = datetime.datetime.now()
-    expiration = now + datetime.timedelta(hours=24)
-    
-    # Guardar en la base de datos
-    conn = sqlite3.connect(db_manager.db_file)
-    cursor = conn.cursor()
-    
-    cursor.execute(
-        "INSERT INTO upload_tokens (token, cita_id, fecha_creacion, fecha_expiracion, usado) VALUES (?, ?, ?, ?, ?)",
-        (token, cita_id, now.strftime("%Y-%m-%d %H:%M:%S"), expiration.strftime("%Y-%m-%d %H:%M:%S"), 0)
-    )
-    
-    conn.commit()
-    conn.close()
-    
-    return token
-
-# Función para validar tokens de carga
-def validate_upload_token(token):
-    """Valida un token de carga y lo marca como usado."""
-    conn = sqlite3.connect(db_manager.db_file)
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT cita_id, fecha_expiracion, usado FROM upload_tokens WHERE token = ?", (token,))
-    result = cursor.fetchone()
-    
-    if not result:
-        conn.close()
-        return None
-    
-    cita_id, fecha_expiracion, usado = result
-    
-    # Verificar si el token ya fue usado
-    if usado:
-        conn.close()
-        return None
-    
-    # Verificar si el token ha expirado
-    import datetime
-    expiration = datetime.datetime.strptime(fecha_expiracion, "%Y-%m-%d %H:%M:%S")
-    now = datetime.datetime.now()
-    
-    if now > expiration:
-        conn.close()
-        return None
-    
-    # Marcar el token como usado
-    cursor.execute("UPDATE upload_tokens SET usado = 1 WHERE token = ?", (token,))
-    conn.commit()
-    conn.close()
-    
-    return cita_id
-

@@ -148,6 +148,7 @@ class DocumentManager:
             # Registrar en base de datos
             if self.db_manager:
                 # Guardar documento en la tabla de documentos
+                now = datetime.datetime.now()
                 doc_id = self.db_manager.add_documento(
                     nombre=original_filename,
                     tipo=file_type,

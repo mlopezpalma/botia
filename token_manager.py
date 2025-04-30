@@ -55,13 +55,14 @@ def store_token(db_file, token, cita_id):
     finally:
         conn.close()
 
-def validate_token(db_file, token):
+def validate_token(db_file, token, mark_as_used=False):
     """
-    Valida un token y lo marca como usado.
+    Valida un token y opcionalmente lo marca como usado.
     
     Args:
         db_file: Ruta del archivo de base de datos
         token: Token a validar
+        mark_as_used: Si se debe marcar el token como usado (default: False)
         
     Returns:
         ID de la cita asociada o None si el token es inválido
@@ -89,14 +90,52 @@ def validate_token(db_file, token):
         if now > expiration:
             return None
         
-        # Marcar el token como usado
-        cursor.execute("UPDATE upload_tokens SET usado = 1 WHERE token = ?", (token,))
-        conn.commit()
+        # Marcar el token como usado si se solicita
+        if mark_as_used:
+            cursor.execute("UPDATE upload_tokens SET usado = 1 WHERE token = ?", (token,))
+            conn.commit()
         
         return cita_id
     except Exception as e:
         logger.error(f"Error al validar token: {str(e)}")
         return None
+    finally:
+        conn.close()
+
+def check_token(db_file, token):
+    """
+    Verifica si un token es válido pero sin marcarlo como usado.
+    
+    Args:
+        db_file: Ruta del archivo de base de datos
+        token: Token a verificar
+        
+    Returns:
+        ID de la cita asociada o None si el token es inválido
+    """
+    return validate_token(db_file, token, mark_as_used=False)
+
+def mark_token_used(db_file, token):
+    """
+    Marca un token como usado.
+    
+    Args:
+        db_file: Ruta del archivo de base de datos
+        token: Token a marcar como usado
+        
+    Returns:
+        True si se marcó correctamente, False en caso contrario
+    """
+    conn = sqlite3.connect(db_file)
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute("UPDATE upload_tokens SET usado = 1 WHERE token = ?", (token,))
+        conn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Error al marcar token como usado: {str(e)}")
+        return False
     finally:
         conn.close()
 
