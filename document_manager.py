@@ -1,6 +1,6 @@
 import os
 import hashlib
-import datetime
+import datetime  # Importación correcta del módulo datetime
 import logging
 import mimetypes
 from werkzeug.utils import secure_filename
@@ -148,7 +148,9 @@ class DocumentManager:
             # Registrar en base de datos
             if self.db_manager:
                 # Guardar documento en la tabla de documentos
-                now = datetime.datetime.now()
+                now = datetime.datetime.now()  # Correcto, usando el módulo datetime
+                fecha_subida = now.strftime("%Y-%m-%d %H:%M:%S")
+                
                 doc_id = self.db_manager.add_documento(
                     nombre=original_filename,
                     tipo=file_type,
@@ -173,6 +175,8 @@ class DocumentManager:
                 
         except Exception as e:
             logger.error(f"Error al subir documento: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())  # Agregamos trazas detalladas para mejor depuración
             return None
     
     def download_documento(self, documento_id):

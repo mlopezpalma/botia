@@ -71,6 +71,7 @@
             background-color: #f8f9fa;
             transition: all 0.3s ease;
             margin-bottom: 20px;
+            position: relative; /* Para poder posicionar correctamente el input file */
         }
         .drag-area.active {
             border-color: #007bff;
@@ -112,6 +113,17 @@
             color: #007bff;
             margin-bottom: 10px;
         }
+        /* Importante para el input file */
+        .drag-area input[type="file"] {
+            /* Hacer que el input ocupe toda el área de arrastre */
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0; /* Hacer invisible pero funcional */
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -144,12 +156,12 @@
         </div>
         {% endif %}
         
-        <form method="post" enctype="multipart/form-data">
+        <form method="post" enctype="multipart/form-data" id="uploadForm">
             <div class="drag-area" id="dropArea">
                 <div class="icon"><i class="fas fa-cloud-upload-alt"></i></div>
                 <h4>Arrastra y suelta archivos aquí</h4>
-                <p>O <label for="file" class="text-primary" style="cursor: pointer;">selecciona archivos</label></p>
-                <input type="file" id="file" name="file" multiple style="display: none;">
+                <p>O <span class="text-primary" style="cursor: pointer;">selecciona archivos</span></p>
+                <input type="file" id="file" name="file" multiple>
                 <p class="text-muted mt-2">Máximo {{ max_files }} archivos (50MB por archivo)</p>
             </div>
             
@@ -181,7 +193,7 @@
             const uploadBtn = document.getElementById('uploadBtn');
             const maxFiles = parseInt('{{ max_files }}');
             
-            // Prevenir comportamiento por defecto
+            // Prevenir comportamiento por defecto en el área de drop
             ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
                 dropArea.addEventListener(eventName, preventDefaults, false);
             });
@@ -191,7 +203,7 @@
                 e.stopPropagation();
             }
             
-            // Resaltar drop area cuando el archivo está sobre ella
+            // Cambiar estilo visual cuando se arrastra un archivo sobre el área
             ['dragenter', 'dragover'].forEach(eventName => {
                 dropArea.addEventListener(eventName, highlight, false);
             });
@@ -212,19 +224,35 @@
             dropArea.addEventListener('drop', handleDrop, false);
             
             function handleDrop(e) {
+                console.log('Drop event triggered');
                 const dt = e.dataTransfer;
+                if (!dt || !dt.files || dt.files.length === 0) {
+                    console.log("No se detectaron archivos en el drop event");
+                    return;
+                }
+                
                 const files = dt.files;
+                console.log(`Se detectaron ${files.length} archivos`);
                 
                 if (files.length > maxFiles) {
                     alert(`Solo se permiten ${maxFiles} archivos.`);
                     return;
                 }
                 
+                // Para transferir los archivos al input de forma que el formulario los envíe
+                // Necesitamos usar DataTransfer debido a que FileList es de solo lectura
+                const newFileList = new DataTransfer();
+                for (let i = 0; i < files.length; i++) {
+                    newFileList.items.add(files[i]);
+                }
+                fileInput.files = newFileList.files;
+                
                 handleFiles(files);
             }
             
             // Manejar selección de archivos por clic
             fileInput.addEventListener('change', function() {
+                console.log('File input change event, files:', this.files.length);
                 if (this.files.length > maxFiles) {
                     alert(`Solo se permiten ${maxFiles} archivos.`);
                     this.value = null;
@@ -237,6 +265,7 @@
             // Procesar archivos seleccionados
             function handleFiles(files) {
                 if (files.length > 0) {
+                    console.log(`Procesando ${files.length} archivos`);
                     previewContainer.classList.remove('d-none');
                     uploadBtn.disabled = false;
                     
@@ -288,6 +317,15 @@
                     });
                 }
             }
+            
+            // Agregar validación al enviar el formulario
+            document.getElementById('uploadForm').addEventListener('submit', function(e) {
+                console.log('Intento de envío de formulario, archivos:', fileInput.files.length);
+                if (fileInput.files.length === 0) {
+                    e.preventDefault();
+                    alert('Por favor, selecciona al menos un archivo para subir.');
+                }
+            });
         });
     </script>
 </body>

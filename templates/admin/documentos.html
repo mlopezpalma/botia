@@ -39,12 +39,20 @@
                         <td>{{ documento.tipo }}</td>
                         <td>{{ documento.tamano }}</td>
                         <td>{{ documento.fecha_subida }}</td>
+                        <!-- Código mejorado: añade las citas y muestra "Sin asociaciones" cuando no hay ninguna -->
                         <td>
-                            {% if documento.clientes %}
-                                <strong>Clientes:</strong> {{ documento.clientes|join(', ') }}<br>
-                            {% endif %}
-                            {% if documento.proyectos %}
-                                <strong>Proyectos:</strong> {{ documento.proyectos|join(', ') }}
+                            {% if documento.clientes or documento.proyectos or documento.citas %}
+                                {% if documento.clientes %}
+                                    <strong>Clientes:</strong> {{ documento.clientes|join(', ') }}<br>
+                                {% endif %}
+                                {% if documento.proyectos %}
+                                    <strong>Proyectos:</strong> {{ documento.proyectos|join(', ') }}<br>
+                                {% endif %}
+                                {% if documento.citas %}
+                                    <strong>Citas:</strong> {{ documento.citas|join(', ') }}
+                                {% endif %}
+                            {% else %}
+                                <span class="text-muted">Sin asociaciones</span>
                             {% endif %}
                         </td>
                         <td>

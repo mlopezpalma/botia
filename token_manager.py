@@ -1,7 +1,7 @@
 import hashlib
 import time
 import random
-import datetime
+import datetime  # Importación correcta del módulo datetime
 import sqlite3
 import logging
 
@@ -34,7 +34,7 @@ def store_token(db_file, token, cita_id):
         True si se almacenó correctamente, False en caso contrario
     """
     # Fechas de creación y expiración
-    now = datetime.datetime.now()
+    now = datetime.datetime.now()  # Correcto, usando el módulo datetime
     expiration = now + datetime.timedelta(hours=24)
     
     # Guardar en la base de datos
@@ -42,6 +42,18 @@ def store_token(db_file, token, cita_id):
     cursor = conn.cursor()
     
     try:
+        # Verificar si la tabla existe, crearla si no
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS upload_tokens (
+            token TEXT PRIMARY KEY,
+            cita_id TEXT NOT NULL,
+            fecha_creacion TEXT NOT NULL,
+            fecha_expiracion TEXT NOT NULL,
+            usado INTEGER DEFAULT 0
+        )
+        ''')
+        
+        # Insertar el token
         cursor.execute(
             "INSERT INTO upload_tokens (token, cita_id, fecha_creacion, fecha_expiracion, usado) VALUES (?, ?, ?, ?, ?)",
             (token, cita_id, now.strftime("%Y-%m-%d %H:%M:%S"), expiration.strftime("%Y-%m-%d %H:%M:%S"), 0)
@@ -51,6 +63,8 @@ def store_token(db_file, token, cita_id):
         return True
     except Exception as e:
         logger.error(f"Error al guardar token en la base de datos: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
         return False
     finally:
         conn.close()
@@ -98,6 +112,8 @@ def validate_token(db_file, token, mark_as_used=False):
         return cita_id
     except Exception as e:
         logger.error(f"Error al validar token: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
         return None
     finally:
         conn.close()

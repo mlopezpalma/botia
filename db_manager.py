@@ -3,7 +3,7 @@
 import sqlite3
 import os
 import json
-from datetime import datetime
+import datetime
 
 class DatabaseManager:
     def __init__(self, db_file='botia.db'):
@@ -148,7 +148,7 @@ class DatabaseManager:
     def add_documento(self, nombre, tipo, tamano, ruta_archivo, hash_md5=None, notas=None):
         """
         Añade un nuevo documento a la base de datos.
-    
+
         Args:
             nombre: Nombre original del documento
             tipo: Tipo MIME o extensión del documento
@@ -156,26 +156,27 @@ class DatabaseManager:
             ruta_archivo: Ruta donde se almacena el archivo
             hash_md5: Hash MD5 para verificación (opcional)
             notas: Notas sobre el documento (opcional)
-        
+    
         Returns:
             ID del documento creado
         """
         conn = sqlite3.connect(self.db_file)
         cursor = conn.cursor()
-    
+
+        # Usar datetime directamente, sin llamar a datetime.datetime
         fecha_subida = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
+
         cursor.execute(
             """INSERT INTO documentos 
                (nombre, tipo, tamano, fecha_subida, ruta_archivo, hash_md5, notas) 
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (nombre, tipo, tamano, fecha_subida, ruta_archivo, hash_md5, notas)
         )
-    
+
         documento_id = cursor.lastrowid
         conn.commit()
         conn.close()
-    
+
         return documento_id
 
     def relacionar_documento_cliente(self, documento_id, cliente_id):

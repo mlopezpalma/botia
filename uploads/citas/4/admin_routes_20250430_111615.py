@@ -9,8 +9,6 @@ from datetime import datetime, timedelta
 import json
 import logging
 
-import sqlite3
-
 # Configurar logging
 logger = logging.getLogger(__name__)
 
@@ -489,7 +487,6 @@ def api_eventos():
         calendar_events.append(event)
     
     return jsonify(calendar_events)
-
 
 # Gestión de citas
 @admin_bp.route('/citas')
@@ -1601,7 +1598,7 @@ def desconectar_google_calendar():
 
 # Rutas para gestión de documentos
 @admin_bp.route('/documentos')
-@role_required(['admin', 'gestor', 'abogado'])
+@login_required
 def documentos():
     """Vista para listar todos los documentos."""
     try:
@@ -1613,15 +1610,12 @@ def documentos():
         cursor.execute("""
         SELECT d.*, 
                GROUP_CONCAT(DISTINCT c.nombre) as clientes,
-               GROUP_CONCAT(DISTINCT p.titulo) as proyectos,
-               GROUP_CONCAT(DISTINCT ct.fecha || ' ' || ct.hora) as citas
+               GROUP_CONCAT(DISTINCT p.titulo) as proyectos
         FROM documentos d
         LEFT JOIN documento_cliente dc ON d.id = dc.documento_id
         LEFT JOIN clientes c ON dc.cliente_id = c.id
         LEFT JOIN documento_proyecto dp ON d.id = dp.documento_id
         LEFT JOIN proyectos p ON dp.proyecto_id = p.id
-        LEFT JOIN documento_cita dct ON d.id = dct.documento_id
-        LEFT JOIN citas ct ON dct.cita_id = ct.id
         GROUP BY d.id
         ORDER BY d.fecha_subida DESC
         """)
@@ -1633,7 +1627,6 @@ def documentos():
         for doc in documentos_raw:
             clientes = doc['clientes'].split(',') if doc['clientes'] else []
             proyectos = doc['proyectos'].split(',') if doc['proyectos'] else []
-            citas = doc['citas'].split(',') if doc['citas'] else []
             
             tamano_mb = round(doc['tamano'] / (1024 * 1024), 2) if doc['tamano'] else 0
             
@@ -1645,7 +1638,6 @@ def documentos():
                 'fecha_subida': doc['fecha_subida'],
                 'clientes': clientes,
                 'proyectos': proyectos,
-                'citas': citas,
                 'ruta_archivo': doc['ruta_archivo']
             })
         
@@ -1653,8 +1645,7 @@ def documentos():
     except Exception as e:
         flash(f'Error al cargar documentos: {str(e)}', 'danger')
         return redirect(url_for('admin.dashboard'))
-    
-    
+
 @admin_bp.route('/documentos/cliente/<int:cliente_id>')
 @login_required
 def documentos_cliente(cliente_id):
@@ -1822,15 +1813,4 @@ def eliminar_documento(documento_id):
         return redirect(redirect_url)
     except Exception as e:
         flash(f'Error al eliminar documento: {str(e)}', 'danger')
-        return redirect(url_for('admin.documentos')) 
-    
-
-@admin_bp.route('/documentos/download/<int:documento_id>')
-@login_required
-def download_documento_admin(documento_id):
-    try:
-        # Redireccionar a la ruta principal de descarga
-        return redirect(url_for('download_documento', documento_id=documento_id))
-    except Exception as e:
-        flash(f'Error al descargar el documento: {str(e)}', 'danger')
-        return redirect(url_for('admin.documentos')) 
+        return redirect(url_for('admin.documentos'))   

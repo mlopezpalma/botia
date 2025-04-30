@@ -625,6 +625,8 @@ def upload_document_by_token(token):
             except Exception as e:
                 errors.append(f"Error: {str(e)}")
                 logger.error(f"Excepción al subir documento: {str(e)}")
+                import traceback
+                logger.error(traceback.format_exc())
         
         if uploaded_files:
             # Marcar el token como usado solo si la subida tuvo éxito
