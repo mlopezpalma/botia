@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_from_directory, session
+from flask import Flask, request, jsonify, send_from_directory, session ,  render_template
 import os
 import logging
 from handlers.conversation import generar_respuesta, reset_conversacion
@@ -97,7 +97,7 @@ def initialize_database():
         logger.error(f"Error al inicializar tabla de tokens: {str(e)}")
 
     # Inicializar gestor de documentos
-    
+
     upload_dir = os.environ.get('UPLOAD_DIR', 'uploads')
     document_manager = DocumentManager(upload_dir=upload_dir, db_manager=db_manager)
 
@@ -114,6 +114,37 @@ def initialize_database():
 from admin_routes import admin_bp
 app.register_blueprint(admin_bp)
 
+# Ruta de prueba simple
+@app.route('/hola')
+def hola():
+    return "¡Hola mundo!"
+
+
+@app.route('/test_subir/<string:param>', methods=['GET'])
+def test_subir(param):
+    """Ruta de prueba para verificar problemas de routing."""
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head><title>Prueba de ruta</title></head>
+    <body>
+        <h1>La ruta funciona correctamente</h1>
+        <p>Parámetro recibido: {param}</p>
+        <p>Esta es una página de prueba para verificar que las rutas con parámetros funcionan correctamente.</p>
+    </body>
+    </html>
+    """
+
+@app.route('/test', methods=['GET'])
+def test_route():
+    """Ruta básica de prueba."""
+    initialize_database()
+    return "La ruta de prueba funciona correctamente!"
+
+@app.route('/test_param/<param>', methods=['GET'])
+def test_param(param):
+    """Prueba de ruta con parámetro simple."""
+    return f"Parámetro recibido: {param}"
 # Crear direcciones para archivos estáticos y templates
 @app.route('/static/<path:filename>')
 def serve_static(filename):
@@ -526,6 +557,114 @@ def download_documento(documento_id):
     except Exception as e:
         logger.error(f"Error al descargar documento: {str(e)}")
         return f"Error al descargar documento: {str(e)}", 500
+    
+
+# Ruta pública para subir documentos con token
+@app.route('/documentos/subir/<string:token>', methods=['GET', 'POST'])
+def upload_document_by_token(token):
+    """Permite subir documentos utilizando un token temporal."""
+    # Asegurar que la base de datos está inicializada
+    initialize_database()
+    
+    logger.info(f"Acceso a ruta de subir documentos con token: {token}")
+    
+    if request.method == 'POST':
+        # Validar token
+        cita_id = validate_upload_token(token)
+        
+        if not cita_id:
+            logger.warning(f"Token inválido: {token}")
+            return render_template('admin/error_subir_documento.html', error="El enlace ha expirado o no es válido.")
+        
+        logger.info(f"Token validado: {token}, cita: {cita_id}")
+
+        # Convertir el cita_id de formato string "cita_XXXX" a entero
+        try:
+            if cita_id.startswith('cita_'):
+                numeric_id = int(cita_id.split('_')[1])
+            else:
+                numeric_id = int(cita_id)
+        except (ValueError, AttributeError):
+            logger.error(f"Error al convertir cita_id: {cita_id}")
+            return render_template('admin/error_subir_documento.html', error="Identificador de cita inválido.")
+        
+        # Verificar que se ha subido un archivo
+        if 'file' not in request.files:
+            return render_template('admin/subir_documento_botia.html', 
+                                  token=token, 
+                                  error="No se seleccionó ningún archivo",
+                                  max_files=5)
+        
+        files = request.files.getlist('file')
+        
+        if not files or files[0].filename == '':
+            return render_template('admin/subir_documento_botia.html', 
+                                  token=token, 
+                                  error="No se seleccionó ningún archivo",
+                                  max_files=5)
+        
+        # Verificar número máximo de archivos
+        if len(files) > 5:
+            return render_template('admin/subir_documento_botia.html', 
+                                  token=token, 
+                                  error="Máximo 5 archivos permitidos",
+                                  max_files=5)
+        
+        # Obtener notas (opcional)
+        notas = request.form.get('notas', None)
+        
+        # Inicializar gestor de documentos
+        document_manager = DocumentManager(upload_dir='uploads', db_manager=db_manager)
+        
+        # Procesar cada archivo
+        uploaded_files = []
+        errors = []
+        
+        for file in files:
+            try:
+                # Subir documento
+                doc_id = document_manager.upload_documento(file, 'cita', numeric_id, notas)
+                
+                if doc_id:
+                    uploaded_files.append(file.filename)
+                else:
+                    errors.append(f"Error al subir el archivo {file.filename}")
+            except Exception as e:
+                errors.append(f"Error: {str(e)}")
+                logger.error(f"Excepción al subir documento: {str(e)}")
+        
+        if uploaded_files:
+            return render_template('admin/documento_subido_botia.html', 
+                                  files=uploaded_files, 
+                                  errors=errors)
+        else:
+            return render_template('admin/subir_documento_botia.html', 
+                                  token=token, 
+                                  error="Error al subir los archivos", 
+                                  errors=errors,
+                                  max_files=5)
+    
+    # GET: Mostrar formulario de carga
+    logger.info(f"Mostrando formulario de subida para token: {token}")
+    return render_template('admin/subir_documento_botia.html', token=token, max_files=5)
+
+
+
+
+
+
+
+# Importar la integración de WhatsApp
+from whatsapp_integration import WhatsAppBot
+
+# Inicializar la integración de WhatsApp
+whatsapp_bot = WhatsAppBot(app)
+
+if __name__ == '__main__':
+    # Inicializar la base de datos antes de iniciar la aplicación
+    initialize_database()
+    app.run(debug=True)
+
 
 # Crear una tabla en SQLite para manejar tokens de carga de documentos
 #@app.before_first_request
@@ -546,17 +685,6 @@ def create_upload_tokens_table():
     
     conn.commit()
     conn.close()
-# Importar la integración de WhatsApp
-from whatsapp_integration import WhatsAppBot
-
-# Inicializar la integración de WhatsApp
-whatsapp_bot = WhatsAppBot(app)
-
-if __name__ == '__main__':
-    # Inicializar la base de datos antes de iniciar la aplicación
-    initialize_database()
-    app.run(debug=True)
-
 
 # Función para crear tokens de carga
 def create_upload_token(cita_id):
@@ -624,92 +752,3 @@ def validate_upload_token(token):
     
     return cita_id
 
-# Ruta pública para subir documentos con token
-@app.route('/documentos/subir/<string:token>', methods=['GET', 'POST'])
-def upload_document_by_token(token):
-    """Permite subir documentos utilizando un token temporal."""
-    # Importar token_manager
-    import token_manager
-
-    logger.info(f"Acceso a ruta de subir documentos con token: {token}")
-    
-    if request.method == 'POST':
-        # Validar token
-        cita_id = token_manager.validate_token(db_manager.db_file, token)
-        
-        if not cita_id:
-            logger.warning(f"Token inválido: {token}")
-            return render_template('admin/error_subir_documento.html', error="El enlace ha expirado o no es válido.")
-        
-        logger.info(f"Token validado: {token}, cita: {cita_id}")
-
-        # Convertir el cita_id de formato string "cita_XXXX" a entero
-        try:
-            if cita_id.startswith('cita_'):
-                numeric_id = int(cita_id.split('_')[1])
-            else:
-                numeric_id = int(cita_id)
-        except (ValueError, AttributeError):
-            logger.error(f"Error al convertir cita_id: {cita_id}")
-            return render_template('admin/error_subir_documento.html', error="Identificador de cita inválido.")
-        
-        # Verificar que se ha subido un archivo
-        if 'file' not in request.files:
-            return render_template('admin/subir_documento_botia.html', 
-                                 token=token, 
-                                 error="No se seleccionó ningún archivo",
-                                 max_files=5)
-        
-        files = request.files.getlist('file')
-        
-        if not files or files[0].filename == '':
-            return render_template('admin/subir_documento_botia.html', 
-                                 token=token, 
-                                 error="No se seleccionó ningún archivo",
-                                 max_files=5)
-        
-        # Verificar número máximo de archivos
-        if len(files) > 5:
-            return render_template('admin/subir_documento_botia.html', 
-                                 token=token, 
-                                 error="Máximo 5 archivos permitidos",
-                                 max_files=5)
-        
-        # Obtener notas (opcional)
-        notas = request.form.get('notas', None)
-        
-        # Inicializar gestor de documentos
-        from document_manager import DocumentManager
-        doc_manager = DocumentManager(upload_dir='uploads', db_manager=db_manager)
-        
-        # Procesar cada archivo
-        uploaded_files = []
-        errors = []
-        
-        for file in files:
-            try:
-                # Subir documento
-                doc_id = doc_manager.upload_documento(file, 'cita', numeric_id, notas)
-                
-                if doc_id:
-                    uploaded_files.append(file.filename)
-                else:
-                    errors.append(f"Error al subir el archivo {file.filename}")
-            except Exception as e:
-                errors.append(f"Error: {str(e)}")
-                logger.error(f"Excepción al subir documento: {str(e)}")
-        
-        if uploaded_files:
-            return render_template('admin/documento_subido_botia.html', 
-                                 files=uploaded_files, 
-                                 errors=errors)
-        else:
-            return render_template('admin/subir_documento_botia.html', 
-                                 token=token, 
-                                 error="Error al subir los archivos", 
-                                 errors=errors,
-                                 max_files=5)
-    
-    # GET: Mostrar formulario de carga
-    logger.info(f"Mostrando formulario de subida para token: {token}")
-    return render_template('admin/subir_documento_botia.html', token=token, max_files=5)
