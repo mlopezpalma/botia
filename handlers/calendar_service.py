@@ -302,8 +302,19 @@ def encontrar_proxima_fecha_disponible(tipo_reunion):
             logger.debug(f"Horarios disponibles para {fecha_check}: {horarios}")
             
             if horarios:
-                logger.debug(f"Se encontraron horarios disponibles, seleccionando: {horarios[0]}")
-                return fecha_check.strftime("%Y-%m-%d"), horarios[0]
+                 # Si es hoy, asegurarse de que el horario es futuro
+                if i == 0:  # Es hoy
+                    hora_actual = hoy.hour * 60 + hoy.minute
+                    horarios_futuros = []
+                    for hora in horarios:
+                        h, m = map(int, hora.split(':'))
+                        minutos_hora = h * 60 + m
+                        if minutos_hora > hora_actual + 30:  # Al menos 30 min en el futuro
+                            horarios_futuros.append(hora)
+                    if horarios_futuros:
+                        return fecha_check.strftime("%Y-%m-%d"), horarios_futuros[0]
+                else:
+                    return fecha_check.strftime("%Y-%m-%d"), horarios[0]
         
         logger.debug(f"No se encontraron horarios disponibles en los próximos 14 días")
         return None, None
